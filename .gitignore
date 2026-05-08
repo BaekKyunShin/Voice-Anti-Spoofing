@@ -1,0 +1,32 @@
+# dependencies
+**/node_modules/
+**/.venv/
+**/venv/
+
+# next.js
+**/.next/
+**/.vercel/
+**/.turbo/
+
+# python
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+
+# env
+**/.env
+**/.env.local
+**/.env*.local
+!**/.env.local.example
+
+# model checkpoints
+**/checkpoints/
+*.pt
+*.pth
+*.onnx
+
+# misc
+.DS_Store
+**/screenshots/
+**/.playwright-mcp/
+*.log
