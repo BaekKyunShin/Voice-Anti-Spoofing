@@ -56,6 +56,12 @@
   --chart-5: oklch(0.645 0.246 16.439);
 }
 
+@theme {
+  --font-pretendard:
+    "Pretendard Variable", "Pretendard", -apple-system, BlinkMacSystemFont,
+    system-ui, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -92,5 +98,7 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-pretendard);
+    font-feature-settings: "ss01", "ss02";
   }
 }

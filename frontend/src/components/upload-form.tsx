@@ -91,7 +91,7 @@ export function UploadForm() {
         <CardTitle className="text-2xl font-mono tracking-tight">
           Voice Authenticity Detector
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="text-[15px] font-medium tracking-tight">
           WAV 파일을 업로드하면 실제 음성인지 합성 음성인지 판별합니다.
         </CardDescription>
       </CardHeader>
@@ -153,7 +153,7 @@ export function UploadForm() {
           <Button
             onClick={onSubmit}
             disabled={!file || isLoading}
-            className="flex-1"
+            className="flex-1 text-base font-semibold"
             size="lg"
           >
             {isLoading ? (
@@ -185,7 +185,7 @@ export function UploadForm() {
                 <ShieldAlert className="size-7 text-rose-500" />
               )}
               <div className="flex flex-col">
-                <div className="text-lg font-semibold">
+                <div className="text-xl font-bold tracking-tight">
                   {isReal ? '실제 음성 (Real)' : '합성 음성 (Fake)'}
                 </div>
                 {result.inference_ms !== undefined && (
