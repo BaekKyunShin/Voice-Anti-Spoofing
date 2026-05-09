@@ -102,3 +102,72 @@
     font-feature-settings: "ss01", "ss02";
   }
 }
+
+/* ── v3 데모 애니메이션 ── */
+@keyframes rOut {
+  0%   { transform: scale(.85); opacity: .6; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+@keyframes gPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34,211,238,.6); }
+  50%      { box-shadow: 0 0 0 30px rgba(34,211,238,0); }
+}
+@keyframes gPulseRose {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,80,80,.6); }
+  50%      { box-shadow: 0 0 0 30px rgba(255,80,80,0); }
+}
+@keyframes scanLine {
+  0%   { top: -3px; }
+  100% { top: 100%; }
+}
+@keyframes vBlink {
+  0%, 49%, 100% { opacity: 1; }
+  50%, 99%      { opacity: 0; }
+}
+@keyframes glitchR {
+  0%   { clip-path: inset(0 0 97% 0); }
+  25%  { clip-path: inset(22% 0 60% 0); transform: translateX(-14px); }
+  50%  { clip-path: inset(58% 0 28% 0); transform: translateX(11px); }
+  75%  { clip-path: inset(82% 0 8% 0);  transform: translateX(-8px); }
+  100% { clip-path: inset(0 0 97% 0); }
+}
+@keyframes glitchB {
+  0%   { clip-path: inset(65% 0 25% 0); transform: translateX(10px); }
+  40%  { clip-path: inset(18% 0 68% 0); transform: translateX(-12px); }
+  70%  { clip-path: inset(78% 0 12% 0); transform: translateX(7px); }
+  100% { clip-path: inset(65% 0 25% 0); transform: translateX(10px); }
+}
+@keyframes flashIn {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; }
+  30%  { opacity: 0; }
+  50%  { opacity: 1; }
+  70%  { opacity: .85; }
+  100% { opacity: 1; }
+}
+@keyframes countIn {
+  from { opacity: 0; transform: scale(.85); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes cornerBlink {
+  0%, 100% { opacity: .4; }
+  50%      { opacity: .9; }
+}
+@keyframes dashFlow { to { stroke-dashoffset: -24; } }
+
+@layer utilities {
+  .anim-r1 { animation: rOut 2.2s ease-out infinite; }
+  .anim-r2 { animation: rOut 2.2s 730ms ease-out infinite; }
+  .anim-r3 { animation: rOut 2.2s 1460ms ease-out infinite; }
+  .anim-gp { animation: gPulse 1.5s ease-in-out infinite; }
+  .anim-gp-rose { animation: gPulseRose 1.5s ease-in-out infinite; }
+  .anim-bk { animation: vBlink .8s step-end infinite; }
+  .anim-bk2 { animation: vBlink 1.6s step-end infinite; }
+  .anim-fi { animation: flashIn .5s ease-out forwards; }
+  .anim-ci { animation: countIn .4s ease-out forwards; }
+  .anim-cb { animation: cornerBlink 2.2s ease-in-out infinite; }
+  .anim-scan { animation: scanLine 2.8s linear infinite; }
+  .anim-glitch-r { animation: glitchR .08s steps(1) infinite; }
+  .anim-glitch-b { animation: glitchB .13s steps(1) infinite; }
+  .anim-dash { animation: dashFlow 1.4s linear infinite; }
+}

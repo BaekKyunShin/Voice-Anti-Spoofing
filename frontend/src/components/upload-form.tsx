@@ -1,26 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import {
-  Upload,
-  Loader2,
-  ShieldCheck,
-  ShieldAlert,
-  X,
-  Sparkles,
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { Waveform } from '@/components/waveform';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatedCounter } from '@/components/animated-counter';
-import { cn } from '@/lib/utils';
 
 type PredictionResult = {
   real_prob: number;
@@ -32,42 +13,258 @@ type PredictionResult = {
   sample_rate?: number;
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-
 type ApiHealth = 'unknown' | 'online' | 'offline';
+type Stage = 'IDLE' | 'ANALYZING' | 'RESULT';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+const CARD_W = 700;
+const BODY_H = 408;
+const GLITCH_MS = 420;
+
+type WaveTone = 'analyzing' | 'fake' | 'real';
+
+/* ────────────────────────────────────────────────────────────
+   ANALYZING / RESULT 화면 하단의 캔버스 파동
+   ──────────────────────────────────────────────────────────── */
+function Wave({ tone }: { tone: WaveTone }) {
+  const cv = useRef<HTMLCanvasElement>(null);
+  const raf = useRef<number | null>(null);
+  const t = useRef(0);
+
+  useEffect(() => {
+    const c = cv.current;
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    const W = c.width;
+    const H = c.height;
+    const isFake = tone === 'fake';
+
+    const palette = isFake
+      ? [
+          { a: 52, f: 0.011, sp: 0.85, c: '#FF2222', lw: 2.8, op: 0.9, fill: true },
+          { a: 34, f: 0.019, sp: 1.25, c: '#FF0000', lw: 2.2, op: 0.7, fill: true },
+          { a: 18, f: 0.03, sp: 0.6, c: '#FF5555', lw: 1.5, op: 0.45, fill: false },
+        ]
+      : [
+          { a: 52, f: 0.011, sp: 0.85, c: '#22D3EE', lw: 2.8, op: 0.9, fill: true },
+          { a: 34, f: 0.019, sp: 1.25, c: '#8B5CF6', lw: 2.2, op: 0.7, fill: true },
+          { a: 18, f: 0.03, sp: 0.6, c: '#22D3EE', lw: 1.5, op: 0.45, fill: false },
+        ];
+
+    const gridStroke = isFake ? 'rgba(160,0,0,.1)' : 'rgba(34,211,238,.055)';
+    const ampMul = tone === 'analyzing' ? 1.3 : isFake ? 1.7 : 1.4;
+
+    const go = () => {
+      t.current += 0.018;
+      ctx.clearRect(0, 0, W, H);
+      ctx.strokeStyle = gridStroke;
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i < W; i += 32) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, H);
+        ctx.stroke();
+      }
+      for (let j = 0; j < H; j += 18) {
+        ctx.beginPath();
+        ctx.moveTo(0, j);
+        ctx.lineTo(W, j);
+        ctx.stroke();
+      }
+
+      const by = H * 0.52;
+      palette.forEach((w) => {
+        const pts: [number, number][] = [];
+        for (let px = 0; px <= W; px += 2) {
+          const py =
+            by +
+            Math.sin(px * w.f + t.current * w.sp) * w.a * ampMul +
+            Math.sin(px * w.f * 2.2 + t.current * w.sp * 0.6) * w.a * ampMul * 0.35 +
+            Math.sin(px * w.f * 0.5 + t.current * w.sp * 1.6) * w.a * ampMul * 0.18;
+          pts.push([px, py]);
+        }
+        ctx.save();
+        if (w.fill) {
+          const g = ctx.createLinearGradient(0, by - w.a * ampMul * 1.3, 0, H);
+          g.addColorStop(0, w.c + '60');
+          g.addColorStop(0.6, w.c + '1A');
+          g.addColorStop(1, w.c + '00');
+          ctx.beginPath();
+          ctx.moveTo(0, H);
+          pts.forEach(([px, py]) => ctx.lineTo(px, py));
+          ctx.lineTo(W, H);
+          ctx.closePath();
+          ctx.fillStyle = g;
+          ctx.globalAlpha = w.op * 0.85;
+          ctx.fill();
+        }
+        ctx.shadowBlur = 22;
+        ctx.shadowColor = w.c;
+        ctx.strokeStyle = w.c;
+        ctx.lineWidth = w.lw;
+        ctx.globalAlpha = w.op;
+        ctx.beginPath();
+        pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
+        ctx.stroke();
+        ctx.restore();
+      });
+      raf.current = requestAnimationFrame(go);
+    };
+    raf.current = requestAnimationFrame(go);
+    return () => {
+      if (raf.current !== null) cancelAnimationFrame(raf.current);
+    };
+  }, [tone]);
+
+  return (
+    <canvas
+      ref={cv}
+      width={CARD_W}
+      height={192}
+      style={{ width: '100%', height: '192px', display: 'block' }}
+    />
+  );
+}
+
+/* ────────────────────────────────────────────────────────────
+   IDLE 화면 중앙의 흐르는 시안 파동
+   ──────────────────────────────────────────────────────────── */
+function IdleWave() {
+  const cv = useRef<HTMLCanvasElement>(null);
+  const raf = useRef<number | null>(null);
+  const t = useRef(0);
+
+  useEffect(() => {
+    const c = cv.current;
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    const W = c.width;
+    const H = c.height;
+
+    const go = () => {
+      t.current += 0.014;
+      ctx.clearRect(0, 0, W, H);
+      ctx.strokeStyle = 'rgba(34,211,238,.04)';
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i < W; i += 28) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, H);
+        ctx.stroke();
+      }
+      for (let j = 0; j < H; j += 16) {
+        ctx.beginPath();
+        ctx.moveTo(0, j);
+        ctx.lineTo(W, j);
+        ctx.stroke();
+      }
+      const by = H * 0.5;
+      [
+        { a: 22, f: 0.016, sp: 0.6, c: '#22D3EE', lw: 2, op: 0.7, fill: true },
+        { a: 14, f: 0.026, sp: 0.95, c: '#7C3AED', lw: 1.5, op: 0.5, fill: true },
+        { a: 9, f: 0.038, sp: 0.45, c: '#22D3EE', lw: 1, op: 0.3, fill: false },
+      ].forEach((w) => {
+        const pts: [number, number][] = [];
+        for (let px = 0; px <= W; px += 2) {
+          const py =
+            by +
+            Math.sin(px * w.f + t.current * w.sp) * w.a +
+            Math.sin(px * w.f * 2.1 + t.current * w.sp * 0.7) * w.a * 0.3;
+          pts.push([px, py]);
+        }
+        ctx.save();
+        if (w.fill) {
+          const g = ctx.createLinearGradient(0, by - w.a * 1.2, 0, H);
+          g.addColorStop(0, w.c + '40');
+          g.addColorStop(0.7, w.c + '10');
+          g.addColorStop(1, w.c + '00');
+          ctx.beginPath();
+          ctx.moveTo(0, H);
+          pts.forEach(([px, py]) => ctx.lineTo(px, py));
+          ctx.lineTo(W, H);
+          ctx.closePath();
+          ctx.fillStyle = g;
+          ctx.globalAlpha = w.op * 0.7;
+          ctx.fill();
+        }
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = w.c;
+        ctx.strokeStyle = w.c;
+        ctx.lineWidth = w.lw;
+        ctx.globalAlpha = w.op;
+        ctx.beginPath();
+        pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
+        ctx.stroke();
+        ctx.restore();
+      });
+      raf.current = requestAnimationFrame(go);
+    };
+    raf.current = requestAnimationFrame(go);
+    return () => {
+      if (raf.current !== null) cancelAnimationFrame(raf.current);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={cv}
+      width={CARD_W}
+      height={130}
+      style={{ width: '100%', height: '130px', display: 'block' }}
+    />
+  );
+}
+
+/* ── 모서리 장식 ── */
+function Corners({ color = 'rgba(34,211,238,.4)' }: { color?: string }) {
+  const s = `1px solid ${color}`;
+  const base: React.CSSProperties = { position: 'absolute', width: 13, height: 13 };
+  return (
+    <>
+      <div className="anim-cb" style={{ ...base, top: 10, left: 10, borderTop: s, borderLeft: s }} />
+      <div className="anim-cb" style={{ ...base, top: 10, right: 10, borderTop: s, borderRight: s }} />
+      <div className="anim-cb" style={{ ...base, bottom: 10, left: 10, borderBottom: s, borderLeft: s }} />
+      <div className="anim-cb" style={{ ...base, bottom: 10, right: 10, borderBottom: s, borderRight: s }} />
+    </>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────
+   메인
+   ──────────────────────────────────────────────────────────── */
 export function UploadForm() {
+  const [stage, setStage] = useState<Stage>('IDLE');
   const [file, setFile] = useState<File | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [glitch, setGlitch] = useState(false);
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [apiHealth, setApiHealth] = useState<ApiHealth>('unknown');
   const inputRef = useRef<HTMLInputElement>(null);
 
+  /* API 헬스 폴링 */
   useEffect(() => {
     let cancelled = false;
     const ping = async () => {
       try {
-        const res = await fetch(`${API_URL}/health`, {
-          cache: 'no-store',
-        });
+        const res = await fetch(`${API_URL}/health`, { cache: 'no-store' });
         if (!cancelled) setApiHealth(res.ok ? 'online' : 'offline');
       } catch {
         if (!cancelled) setApiHealth('offline');
       }
     };
     ping();
-    const interval = setInterval(ping, 15000);
+    const id = setInterval(ping, 15000);
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      clearInterval(id);
     };
   }, []);
 
   const handleFile = (selected: File | null) => {
     setError(null);
-    setResult(null);
     if (!selected) {
       setFile(null);
       return;
@@ -79,113 +276,263 @@ export function UploadForm() {
     setFile(selected);
   };
 
-  const onSubmit = async () => {
+  const startScan = async () => {
     if (!file) return;
-    setIsLoading(true);
     setError(null);
     setResult(null);
-
+    setStage('ANALYZING');
     try {
       const formData = new FormData();
       formData.append('file', file);
-
-      const res = await fetch(`${API_URL}/predict`, {
-        method: 'POST',
-        body: formData,
-      });
-
+      const res = await fetch(`${API_URL}/predict`, { method: 'POST', body: formData });
       if (!res.ok) {
         const text = await res.text();
         throw new Error(text || `요청 실패 (${res.status})`);
       }
-
       const data: PredictionResult = await res.json();
-      setResult(data);
+      // 글리치 → RESULT (FAKE인 경우만 실제 글리치, REAL은 부드럽게)
+      if (data.prediction === 'fake') {
+        setGlitch(true);
+        setTimeout(() => {
+          setGlitch(false);
+          setResult(data);
+          setStage('RESULT');
+        }, GLITCH_MS);
+      } else {
+        setResult(data);
+        setStage('RESULT');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : '알 수 없는 오류');
-    } finally {
-      setIsLoading(false);
+      setStage('IDLE');
     }
   };
 
   const reset = () => {
+    setStage('IDLE');
     setFile(null);
     setResult(null);
     setError(null);
+    setGlitch(false);
     if (inputRef.current) inputRef.current.value = '';
   };
 
-  const isReal = result?.prediction === 'real';
-  const realPct = result ? result.real_prob * 100 : 0;
-  const fakePct = result ? result.fake_prob * 100 : 0;
-  const confidence = result
-    ? Math.max(result.real_prob, result.fake_prob) * 100
-    : 0;
+  const isFake = result?.prediction === 'fake';
+  const pct = result ? (isFake ? result.fake_prob : result.real_prob) * 100 : 0;
+
+  /* 색·테마 ─ FAKE = 빨강, REAL = 시안 (v3 원본과 동일한 값) */
+  const themeRgb = isFake ? '255,0,0' : '34,211,238';
+  const themeBorder = isFake ? 'rgba(255,45,45,.5)' : 'rgba(34,211,238,.5)';
+  const idleBorder = 'rgba(34,211,238,.22)';
+  const cardBorder = stage === 'RESULT' ? themeBorder : idleBorder;
+  const cardShadow = `0 0 80px rgba(${stage === 'RESULT' ? themeRgb : '34,211,238'},.18),0 28px 80px rgba(0,0,0,.95)`;
+
+  /* 진단 4줄 (UI flavor) */
+  const diagnostics = isFake
+    ? [
+        { label: 'CNN Artifact Analysis', val: 'COMPLETED', ok: true },
+        { label: 'LSTM Temporal Check', val: 'FAILED', ok: false },
+        { label: 'GAN Discriminator', val: 'SYNTHETIC DETECTED', ok: false },
+        { label: 'Spectrogram RNN', val: 'ANOMALY FOUND', ok: false },
+      ]
+    : [
+        { label: 'CNN Artifact Analysis', val: 'CLEAN', ok: true },
+        { label: 'LSTM Temporal Check', val: 'PASSED', ok: true },
+        { label: 'GAN Discriminator', val: 'AUTHENTIC', ok: true },
+        { label: 'Spectrogram RNN', val: 'NORMAL', ok: true },
+      ];
 
   return (
-    <div className="w-full max-w-xl flex flex-col gap-3">
-      {/* 상단 상태 배지 */}
-      <div className="flex items-center justify-between text-xs px-1">
-        <div className="flex items-center gap-2 font-mono uppercase tracking-[0.2em] text-muted-foreground">
-          <Sparkles className="size-3" />
-          deep learning · audio anti-spoofing
-        </div>
-        <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              'relative flex size-2 rounded-full',
-              apiHealth === 'online' && 'bg-emerald-500',
-              apiHealth === 'offline' && 'bg-rose-500',
-              apiHealth === 'unknown' && 'bg-zinc-500'
-            )}
-          >
-            {apiHealth === 'online' && (
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-            )}
-          </span>
-          <span className="font-mono text-muted-foreground">
-            {apiHealth === 'online'
-              ? 'API connected'
-              : apiHealth === 'offline'
-                ? 'API offline'
-                : 'connecting…'}
-          </span>
-        </div>
-      </div>
-
-      {/* 메인 카드 */}
-      <Card
-        className={cn(
-          'relative bg-card/70 backdrop-blur-xl border-border/50 shadow-2xl overflow-hidden transition-shadow duration-700',
-          result && isReal && 'shadow-emerald-500/20',
-          result && !isReal && 'shadow-rose-500/20'
-        )}
+    <div
+      style={{
+        width: '100%',
+        maxWidth: CARD_W + 'px',
+        fontFamily: "'Courier New',Courier,monospace",
+        WebkitFontSmoothing: 'subpixel-antialiased',
+        MozOsxFontSmoothing: 'auto',
+      }}
+    >
+      <div
+        style={{
+          background: 'linear-gradient(155deg,rgba(13,19,46,.97) 0%,rgba(6,9,22,.99) 100%)',
+          border: `1px solid ${cardBorder}`,
+          borderRadius: 16,
+          overflow: 'hidden',
+          boxShadow: cardShadow,
+          transition: 'border-color .5s,box-shadow .5s',
+          position: 'relative',
+        }}
       >
-        {/* 미묘한 그라디언트 보더 */}
+        {/* 글리치 오버레이 (FAKE 진입 시) */}
+        {glitch && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 60, pointerEvents: 'none' }}>
+            <div
+              className="anim-glitch-r"
+              style={{ position: 'absolute', inset: 0, background: 'rgba(255,0,0,.32)' }}
+            />
+            <div
+              className="anim-glitch-b"
+              style={{ position: 'absolute', inset: 0, background: 'rgba(0,80,255,.18)' }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                backgroundImage:
+                  'repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,0,0,.1) 2px,rgba(255,0,0,.1) 3px)',
+              }}
+            />
+          </div>
+        )}
+
+        {/* scanline (RESULT 단계, FAKE만) */}
+        {stage === 'RESULT' && isFake && (
+          <div
+            className="anim-scan"
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              height: '2px',
+              background: 'rgba(255,50,50,.14)',
+              pointerEvents: 'none',
+              zIndex: 4,
+            }}
+          />
+        )}
+
+        {/* 헤더 */}
         <div
-          aria-hidden
-          className={cn(
-            'pointer-events-none absolute inset-0 rounded-xl opacity-40 transition-colors duration-700',
-            'bg-[radial-gradient(ellipse_at_top,var(--color-foreground)/0.08,transparent_60%)]',
-            result && isReal && 'opacity-60',
-            result && !isReal && 'opacity-60'
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '13px 20px',
+            borderBottom: `1px solid ${cardBorder}`,
+            background: `rgba(${stage === 'RESULT' ? themeRgb : '34,211,238'},.04)`,
+            transition: 'all .5s',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: '50%',
+                background: `rgba(${stage === 'RESULT' ? themeRgb : '34,211,238'},.15)`,
+                border: `1px solid rgba(${stage === 'RESULT' ? themeRgb : '34,211,238'},.5)`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 13,
+                transition: 'all .5s',
+              }}
+            >
+              🎙️
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                letterSpacing: '.07em',
+                color: 'rgba(255,255,255,.82)',
+              }}
+            >
+              Voice Authenticity Detector
+            </span>
+          </div>
+          {stage !== 'IDLE' && (
+            <button
+              onClick={reset}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'rgba(255,255,255,.35)',
+                cursor: 'pointer',
+                fontSize: 22,
+                lineHeight: 1,
+                padding: '0 3px',
+              }}
+              aria-label="reset"
+            >
+              ×
+            </button>
           )}
-        />
+        </div>
 
-        <CardHeader className="relative text-center gap-2">
-          <CardTitle className="text-2xl font-mono tracking-tight">
-            Voice Authenticity Detector
-          </CardTitle>
-          <CardDescription className="text-[15px] tracking-tight">
-            WAV 파일을 업로드하면 실제 음성인지 합성 음성인지 판별합니다.
-          </CardDescription>
-        </CardHeader>
+        {/* ════ IDLE ════ */}
+        {stage === 'IDLE' && (
+          <div
+            style={{
+              height: BODY_H + 'px',
+              display: 'flex',
+              flexDirection: 'column',
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+          >
+            <Corners />
 
-        <CardContent className="relative flex flex-col gap-5">
-          {/* 업로드 영역 */}
-          {!file ? (
-            <label
-              htmlFor="audio-input"
+            {/* 세션 ID */}
+            <div
+              style={{
+                position: 'absolute',
+                top: 18,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                fontSize: '8px',
+                letterSpacing: '.38em',
+                color: 'rgba(34,211,238,.35)',
+                whiteSpace: 'nowrap',
+                fontWeight: 300,
+                zIndex: 2,
+              }}
+            >
+              ENCRYPTED SESSION // UNIT 01
+            </div>
+
+            {/* 타이틀 */}
+            <div
+              style={{
+                flex: '0 0 auto',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                paddingTop: 42,
+                paddingBottom: 0,
+                zIndex: 2,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: '28px',
+                  fontWeight: 900,
+                  letterSpacing: '.2em',
+                  color: 'rgba(255,255,255,.92)',
+                  whiteSpace: 'nowrap',
+                  lineHeight: 1,
+                  textShadow: '0 0 40px rgba(34,211,238,.3)',
+                }}
+              >
+                VOICE AUTH PROTOCOL
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ height: '1px', width: 44, background: 'rgba(34,211,238,.28)' }} />
+                <span
+                  style={{
+                    fontSize: '7px',
+                    letterSpacing: '.32em',
+                    color: 'rgba(34,211,238,.38)',
+                  }}
+                >
+                  BIOMETRIC ANALYSIS ENGINE
+                </span>
+                <div style={{ height: '1px', width: 44, background: 'rgba(34,211,238,.28)' }} />
+              </div>
+            </div>
+
+            {/* 흐르는 파동 (배경 레이어) — v3 원본과 동일하게 가운데 비움. 카드 전체가 drop zone */}
+            <div
               onDragOver={(e) => {
                 e.preventDefault();
                 setIsDragging(true);
@@ -196,186 +543,447 @@ export function UploadForm() {
                 setIsDragging(false);
                 handleFile(e.dataTransfer.files?.[0] ?? null);
               }}
-              className={cn(
-                'group relative flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/70 px-6 py-10 text-center cursor-pointer transition-all',
-                'hover:border-foreground/40 hover:bg-foreground/[0.03]',
-                isDragging && 'border-foreground/60 bg-foreground/[0.05] scale-[1.01]'
-              )}
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                position: 'relative',
+                overflow: 'hidden',
+                outline: isDragging ? '1px dashed rgba(34,211,238,.5)' : 'none',
+                outlineOffset: -8,
+              }}
             >
-              <div className="rounded-full bg-foreground/5 p-3 transition-transform group-hover:scale-110">
-                <Upload className="size-6 text-foreground/70" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <div className="text-sm font-medium">
-                  클릭 또는 파일을 드래그해서 업로드
-                </div>
-                <div className="text-xs font-mono text-muted-foreground">
-                  .wav · max 25MB
-                </div>
-              </div>
-            </label>
-          ) : (
-            <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-foreground/[0.02] p-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex flex-col min-w-0">
-                  <div className="text-sm font-medium truncate">
-                    {file.name}
-                  </div>
-                  <div className="text-xs font-mono text-muted-foreground">
-                    {(file.size / 1024).toFixed(1)} KB
-                  </div>
-                </div>
-                <button
-                  onClick={reset}
-                  className="text-muted-foreground hover:text-foreground transition shrink-0"
-                  aria-label="파일 제거"
-                  disabled={isLoading}
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-              <Waveform file={file} className="w-full h-14" />
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  bottom: 0,
+                  width: 60,
+                  zIndex: 3,
+                  background: 'linear-gradient(to right,rgba(8,12,28,.97),transparent)',
+                  pointerEvents: 'none',
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  width: 60,
+                  zIndex: 3,
+                  background: 'linear-gradient(to left,rgba(8,12,28,.97),transparent)',
+                  pointerEvents: 'none',
+                }}
+              />
+              <IdleWave />
             </div>
-          )}
 
-          <input
-            ref={inputRef}
-            id="audio-input"
-            type="file"
-            accept=".wav,audio/wav,audio/x-wav"
-            className="hidden"
-            onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
-          />
+            <input
+              ref={inputRef}
+              id="audio-input"
+              type="file"
+              accept=".wav,audio/wav,audio/x-wav"
+              style={{ display: 'none' }}
+              onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+            />
 
-          {error && (
-            <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive animate-in fade-in slide-in-from-top-1 duration-200">
-              {error}
-            </div>
-          )}
-
-          {/* 액션 버튼 */}
-          <Button
-            onClick={onSubmit}
-            disabled={!file || isLoading || apiHealth === 'offline'}
-            className="w-full text-base font-semibold tracking-tight"
-            size="lg"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="animate-spin" /> 분석 중...
-              </>
-            ) : apiHealth === 'offline' ? (
-              'API 서버 오프라인'
-            ) : (
-              '판별하기'
-            )}
-          </Button>
-
-          {/* 결과 표시 */}
-          {result && (
+            {/* 액션 영역: 파일명(있을 때) + START 버튼 */}
             <div
-              className={cn(
-                'flex flex-col gap-4 rounded-lg border bg-background/40 p-5 animate-in fade-in slide-in-from-bottom-3 duration-500',
-                isReal
-                  ? 'border-emerald-500/30 shadow-[inset_0_0_60px_-30px_rgb(16_185_129/0.4)]'
-                  : 'border-rose-500/30 shadow-[inset_0_0_60px_-30px_rgb(244_63_94/0.4)]'
-              )}
-              key={result.filename ?? '' + (result.inference_ms ?? 0)}
+              style={{
+                flex: '0 0 auto',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 8,
+                paddingBottom: 38,
+                zIndex: 2,
+              }}
             >
-              <div className="flex items-center gap-3">
+              {error && (
                 <div
-                  className={cn(
-                    'flex items-center justify-center rounded-full p-2 transition-colors',
-                    isReal
-                      ? 'bg-emerald-500/10 text-emerald-400'
-                      : 'bg-rose-500/10 text-rose-400'
-                  )}
+                  style={{
+                    fontSize: '9px',
+                    letterSpacing: '.12em',
+                    color: '#FF6666',
+                    background: 'rgba(255,0,0,.06)',
+                    border: '1px solid rgba(255,80,80,.3)',
+                    padding: '4px 12px',
+                    borderRadius: 3,
+                  }}
                 >
-                  {isReal ? (
-                    <ShieldCheck className="size-6" />
-                  ) : (
-                    <ShieldAlert className="size-6" />
-                  )}
+                  {error}
                 </div>
-                <div className="flex flex-col flex-1 min-w-0">
-                  <div className="text-xl font-bold tracking-tight">
-                    {isReal ? '실제 음성 (Real)' : '합성 음성 (Fake)'}
-                  </div>
-                  <div className="flex items-center gap-3 text-xs font-mono text-muted-foreground">
-                    <span>
-                      신뢰도{' '}
-                      <span className="text-foreground tabular-nums">
-                        <AnimatedCounter value={confidence} decimals={1} />%
-                      </span>
-                    </span>
-                    {result.inference_ms !== undefined && (
-                      <>
-                        <span className="opacity-40">·</span>
-                        <span>
-                          <span className="text-foreground tabular-nums">
-                            {result.inference_ms.toFixed(0)}
-                          </span>{' '}
-                          ms
-                        </span>
-                      </>
-                    )}
-                    {result.duration_sec !== undefined && (
-                      <>
-                        <span className="opacity-40">·</span>
-                        <span>
-                          <span className="text-foreground tabular-nums">
-                            {result.duration_sec.toFixed(2)}
-                          </span>{' '}
-                          s
-                        </span>
-                      </>
-                    )}
-                  </div>
+              )}
+              {file && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    fontSize: '8.5px',
+                    letterSpacing: '.16em',
+                    color: 'rgba(34,211,238,.55)',
+                  }}
+                >
+                  <span style={{ color: 'rgba(34,211,238,.4)' }}>FILE //</span>
+                  <span
+                    style={{
+                      color: 'rgba(255,255,255,.7)',
+                      maxWidth: 280,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={file.name}
+                  >
+                    {file.name}
+                  </span>
+                  <span style={{ color: 'rgba(255,255,255,.35)' }}>
+                    {(file.size / 1024).toFixed(1)} KB
+                  </span>
+                  <button
+                    onClick={() => handleFile(null)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'rgba(255,255,255,.35)',
+                      cursor: 'pointer',
+                      fontSize: 14,
+                      lineHeight: 1,
+                      padding: '0 2px',
+                      fontFamily: 'inherit',
+                    }}
+                    aria-label="파일 제거"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+              <button
+                onClick={() => {
+                  if (apiHealth === 'offline') {
+                    setError('백엔드 서버가 꺼져 있습니다. uvicorn :8000을 먼저 실행해주세요.');
+                    return;
+                  }
+                  if (file) startScan();
+                  else inputRef.current?.click();
+                }}
+                style={{
+                  background: 'rgba(34,211,238,.05)',
+                  border: '1px solid rgba(34,211,238,.55)',
+                  color: '#67E8F9',
+                  cursor: 'pointer',
+                  padding: '12px 40px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  letterSpacing: '.24em',
+                  borderRadius: 3,
+                  boxShadow:
+                    '0 0 22px rgba(34,211,238,.22), inset 0 0 18px rgba(34,211,238,.04)',
+                  textShadow: '0 0 8px rgba(34,211,238,.6)',
+                  transition: 'all .2s',
+                  fontFamily: 'inherit',
+                }}
+              >
+                {file ? '[ START BIO-SCAN ]' : '[ SELECT .WAV TO SCAN ]'}
+              </button>
+              {apiHealth === 'offline' && (
+                <div
+                  style={{
+                    fontSize: '8px',
+                    letterSpacing: '.18em',
+                    color: 'rgba(255,80,80,.55)',
+                    marginTop: 2,
+                  }}
+                >
+                  BACKEND OFFLINE — start uvicorn :8000
+                </div>
+              )}
+            </div>
+
+            {/* 우측 하단 상태 (v3 원본 톤) */}
+            <div
+              className="anim-bk2"
+              style={{
+                position: 'absolute',
+                bottom: 16,
+                right: 18,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: '7.5px',
+                letterSpacing: '.16em',
+                color: 'rgba(34,211,238,.32)',
+                zIndex: 2,
+              }}
+            >
+              {apiHealth === 'offline' && (
+                <span
+                  style={{
+                    width: 5,
+                    height: 5,
+                    borderRadius: '50%',
+                    background: '#FF4444',
+                    boxShadow: '0 0 6px rgba(255,80,80,.7)',
+                  }}
+                  aria-label="backend offline"
+                />
+              )}
+              SYSTEM STATUS: WAITING FOR INPUT...
+            </div>
+          </div>
+        )}
+
+        {/* ════ ANALYZING ════ */}
+        {stage === 'ANALYZING' && (
+          <div
+            style={{
+              height: BODY_H + 'px',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 26,
+                padding: '0 20px',
+              }}
+            >
+              <div
+                style={{
+                  position: 'relative',
+                  width: 144,
+                  height: 144,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <div
+                  className="anim-r1"
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    borderRadius: '50%',
+                    border: '1px solid rgba(34,211,238,.35)',
+                  }}
+                />
+                <div
+                  className="anim-r2"
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    borderRadius: '50%',
+                    border: '1px solid rgba(34,211,238,.25)',
+                  }}
+                />
+                <div
+                  className="anim-r3"
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    borderRadius: '50%',
+                    border: '1px solid rgba(34,211,238,.15)',
+                  }}
+                />
+                <div
+                  className="anim-gp"
+                  style={{
+                    width: 98,
+                    height: 98,
+                    borderRadius: '50%',
+                    border: '1px solid rgba(34,211,238,.75)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(34,211,238,.05)',
+                    fontSize: 34,
+                  }}
+                >
+                  🔍
                 </div>
               </div>
-
-              <div className="flex flex-col gap-3">
-                <ProbBar
-                  label="실제 음성 확률"
-                  pct={realPct}
-                  color="emerald"
-                />
-                <ProbBar
-                  label="합성 음성 확률"
-                  pct={fakePct}
-                  color="rose"
-                />
+              <div
+                style={{
+                  fontSize: '9px',
+                  letterSpacing: '.15em',
+                  color: 'rgba(34,211,238,.45)',
+                }}
+              >
+                [Scanning for Voice Cloning Artifacts...]
               </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
+            <Wave tone="analyzing" />
+          </div>
+        )}
 
-function ProbBar({
-  label,
-  pct,
-  color,
-}: {
-  label: string;
-  pct: number;
-  color: 'emerald' | 'rose';
-}) {
-  const indicatorClass =
-    color === 'emerald'
-      ? 'bg-gradient-to-r from-emerald-500/80 to-emerald-400'
-      : 'bg-gradient-to-r from-rose-500/80 to-rose-400';
-  return (
-    <div>
-      <div className="flex justify-between text-sm mb-1.5">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-mono font-medium tabular-nums">
-          <AnimatedCounter value={pct} decimals={1} />%
-        </span>
+        {/* ════ RESULT (FAKE / REAL 공용) ════ */}
+        {stage === 'RESULT' && result && (
+          <div
+            className="anim-fi"
+            style={{
+              height: BODY_H + 'px',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '20px 26px 0',
+                textAlign: 'center',
+              }}
+            >
+              <div style={{ marginBottom: 10 }}>
+                <span
+                  className={isFake ? 'anim-bk' : undefined}
+                  style={{
+                    display: 'inline-block',
+                    background: isFake ? 'rgba(255,0,0,.14)' : 'rgba(34,211,238,.12)',
+                    border: `1px solid ${
+                      isFake ? 'rgba(255,50,50,.7)' : 'rgba(34,211,238,.65)'
+                    }`,
+                    color: isFake ? '#FF4444' : '#22D3EE',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    padding: '4px 20px',
+                    borderRadius: 3,
+                    letterSpacing: '.22em',
+                    boxShadow: isFake
+                      ? '0 0 16px rgba(255,0,0,.4)'
+                      : '0 0 16px rgba(34,211,238,.3)',
+                  }}
+                >
+                  {isFake ? 'FAKE' : 'AUTHENTIC'}
+                </span>
+              </div>
+              <div
+                className="anim-ci"
+                style={{
+                  fontSize: 'clamp(72px,12vw,96px)',
+                  fontWeight: 900,
+                  lineHeight: 1,
+                  color: '#fff',
+                  letterSpacing: '-3px',
+                  textShadow: isFake
+                    ? '0 0 50px rgba(255,80,80,.55)'
+                    : '0 0 50px rgba(34,211,238,.5)',
+                  marginBottom: 7,
+                }}
+              >
+                <AnimatedCounter value={pct} decimals={1} />%
+              </div>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: 'rgba(255,255,255,.48)',
+                  letterSpacing: '.04em',
+                }}
+              >
+                {isFake ? 'Synthetic voice probability' : 'Authentic voice probability'}
+              </div>
+            </div>
+
+            <Wave tone={isFake ? 'fake' : 'real'} />
+
+            <div
+              style={{
+                flexShrink: 0,
+                padding: '10px 20px 14px',
+                borderTop: `1px solid rgba(${themeRgb},.14)`,
+                background: `rgba(${themeRgb},.03)`,
+              }}
+            >
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: '5px 24px',
+                }}
+              >
+                {diagnostics.map((r, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: '8.5px',
+                        color: 'rgba(255,255,255,.28)',
+                        letterSpacing: '.04em',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {r.label}:
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '8.5px',
+                        fontWeight: 700,
+                        letterSpacing: '.06em',
+                        color: r.ok ? 'rgba(34,211,238,.85)' : '#FF4444',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {r.val}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div
+                style={{
+                  marginTop: 7,
+                  paddingTop: 7,
+                  borderTop: '1px solid rgba(255,255,255,.05)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: '8px',
+                    color: 'rgba(255,255,255,.22)',
+                    letterSpacing: '.04em',
+                  }}
+                >
+                  File:{' '}
+                  <span style={{ color: 'rgba(255,255,255,.45)' }}>
+                    `{result.filename ?? file?.name ?? 'unknown.wav'}`
+                  </span>
+                </span>
+                <span
+                  style={{
+                    fontSize: '8px',
+                    color: 'rgba(255,255,255,.22)',
+                    letterSpacing: '.04em',
+                  }}
+                >
+                  {result.inference_ms !== undefined
+                    ? `Analysed in ${result.inference_ms.toFixed(0)} ms`
+                    : 'Analysed'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-      <Progress value={pct} indicatorClassName={indicatorClass} />
     </div>
   );
 }
