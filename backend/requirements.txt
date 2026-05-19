@@ -1,5 +1,19 @@
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
-python-multipart==0.0.12
-soundfile==0.12.1
-numpy==1.26.4
+fastapi==0.136.1
+uvicorn[standard]==0.46.0
+python-multipart==0.0.26
+pydantic>=2.0
+
+# 오디오 디코딩 / mel-spectrogram
+soundfile==0.13.1
+librosa==0.11.0
+numpy==2.0.2
+
+# 모델 추론
+torch==2.10.0
+torchaudio==2.10.0
+transformers==5.0.0
+huggingface_hub==1.11.0
+sentencepiece==0.2.1
+
+# 테스트
+pytest>=8.0
