@@ -3,14 +3,35 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatedCounter } from '@/components/animated-counter';
 
-type PredictionResult = {
+type ModelKey = 'gru' | 'lcnn' | 'crnn' | 'xlsr_aasist';
+
+type ModelResult = {
   real_prob: number;
   fake_prob: number;
   prediction: 'real' | 'fake';
-  inference_ms?: number;
+  inference_ms: number;
+};
+
+type Consensus = {
+  prediction: 'real' | 'fake';
+  agreement: number; // 0.5, 0.75, 1.0 ...
+};
+
+type PredictionResult = {
   filename?: string;
-  duration_sec?: number;
   sample_rate?: number;
+  duration_sec?: number;
+  total_inference_ms?: number;
+  models: Record<ModelKey, ModelResult>;
+  consensus: Consensus;
+};
+
+const MODEL_ORDER: ModelKey[] = ['gru', 'lcnn', 'crnn', 'xlsr_aasist'];
+const MODEL_LABEL: Record<ModelKey, string> = {
+  gru: 'GRU',
+  lcnn: 'LCNN',
+  crnn: 'CRNN',
+  xlsr_aasist: 'XLS-R + AASIST',
 };
 
 type ApiHealth = 'unknown' | 'online' | 'offline';
@@ -290,8 +311,8 @@ export function UploadForm() {
         throw new Error(text || `요청 실패 (${res.status})`);
       }
       const data: PredictionResult = await res.json();
-      // 글리치 → RESULT (FAKE인 경우만 실제 글리치, REAL은 부드럽게)
-      if (data.prediction === 'fake') {
+      // 글리치 → RESULT (consensus FAKE면 글리치, REAL은 부드럽게)
+      if (data.consensus.prediction === 'fake') {
         setGlitch(true);
         setTimeout(() => {
           setGlitch(false);
@@ -317,8 +338,10 @@ export function UploadForm() {
     if (inputRef.current) inputRef.current.value = '';
   };
 
-  const isFake = result?.prediction === 'fake';
-  const pct = result ? (isFake ? result.fake_prob : result.real_prob) * 100 : 0;
+  const isFake = result?.consensus.prediction === 'fake';
+  /* consensus 합의도 (0~100) — 큰 숫자에 사용. 4-모델 동의 비율을 %로 표시 */
+  const pct = result ? result.consensus.agreement * 100 : 0;
+  const agreeCount = result ? Math.round(result.consensus.agreement * 4) : 0;
 
   /* 색·테마 ─ FAKE = 빨강, REAL = 시안 (v3 원본과 동일한 값) */
   const themeRgb = isFake ? '255,0,0' : '34,211,238';
@@ -326,21 +349,6 @@ export function UploadForm() {
   const idleBorder = 'rgba(34,211,238,.22)';
   const cardBorder = stage === 'RESULT' ? themeBorder : idleBorder;
   const cardShadow = `0 0 80px rgba(${stage === 'RESULT' ? themeRgb : '34,211,238'},.18),0 28px 80px rgba(0,0,0,.95)`;
-
-  /* 진단 4줄 (UI flavor) */
-  const diagnostics = isFake
-    ? [
-        { label: 'CNN Artifact Analysis', val: 'COMPLETED', ok: true },
-        { label: 'LSTM Temporal Check', val: 'FAILED', ok: false },
-        { label: 'GAN Discriminator', val: 'SYNTHETIC DETECTED', ok: false },
-        { label: 'Spectrogram RNN', val: 'ANOMALY FOUND', ok: false },
-      ]
-    : [
-        { label: 'CNN Artifact Analysis', val: 'CLEAN', ok: true },
-        { label: 'LSTM Temporal Check', val: 'PASSED', ok: true },
-        { label: 'GAN Discriminator', val: 'AUTHENTIC', ok: true },
-        { label: 'Spectrogram RNN', val: 'NORMAL', ok: true },
-      ];
 
   return (
     <div
@@ -824,162 +832,253 @@ export function UploadForm() {
           </div>
         )}
 
-        {/* ════ RESULT (FAKE / REAL 공용) ════ */}
+        {/* ════ RESULT (4-모델 consensus + 카드 그리드) ════ */}
         {stage === 'RESULT' && result && (
           <div
             className="anim-fi"
             style={{
-              height: BODY_H + 'px',
+              minHeight: BODY_H + 'px',
               display: 'flex',
               flexDirection: 'column',
             }}
           >
+            {/* 상단: consensus 배지 + 합의도 % */}
             <div
               style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '20px 26px 0',
+                padding: '22px 26px 14px',
                 textAlign: 'center',
               }}
             >
-              <div style={{ marginBottom: 10 }}>
-                <span
-                  className={isFake ? 'anim-bk' : undefined}
-                  style={{
-                    display: 'inline-block',
-                    background: isFake ? 'rgba(255,0,0,.14)' : 'rgba(34,211,238,.12)',
-                    border: `1px solid ${
-                      isFake ? 'rgba(255,50,50,.7)' : 'rgba(34,211,238,.65)'
-                    }`,
-                    color: isFake ? '#FF4444' : '#22D3EE',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    padding: '4px 20px',
-                    borderRadius: 3,
-                    letterSpacing: '.22em',
-                    boxShadow: isFake
-                      ? '0 0 16px rgba(255,0,0,.4)'
-                      : '0 0 16px rgba(34,211,238,.3)',
-                  }}
-                >
-                  {isFake ? 'FAKE' : 'AUTHENTIC'}
-                </span>
-              </div>
+              <span
+                className={isFake ? 'anim-bk' : undefined}
+                style={{
+                  display: 'inline-block',
+                  background: isFake ? 'rgba(255,0,0,.14)' : 'rgba(34,211,238,.12)',
+                  border: `1px solid ${
+                    isFake ? 'rgba(255,50,50,.7)' : 'rgba(34,211,238,.65)'
+                  }`,
+                  color: isFake ? '#FF4444' : '#22D3EE',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '4px 18px',
+                  borderRadius: 3,
+                  letterSpacing: '.2em',
+                  boxShadow: isFake
+                    ? '0 0 16px rgba(255,0,0,.4)'
+                    : '0 0 16px rgba(34,211,238,.3)',
+                }}
+              >
+                {agreeCount}/4 MODELS · {isFake ? 'FAKE' : 'AUTHENTIC'}
+              </span>
               <div
                 className="anim-ci"
                 style={{
-                  fontSize: 'clamp(72px,12vw,96px)',
+                  marginTop: 10,
+                  fontSize: 'clamp(56px,9vw,76px)',
                   fontWeight: 900,
                   lineHeight: 1,
                   color: '#fff',
-                  letterSpacing: '-3px',
+                  letterSpacing: '-2px',
                   textShadow: isFake
                     ? '0 0 50px rgba(255,80,80,.55)'
                     : '0 0 50px rgba(34,211,238,.5)',
-                  marginBottom: 7,
                 }}
               >
-                <AnimatedCounter value={pct} decimals={1} />%
+                <AnimatedCounter value={pct} decimals={0} />%
               </div>
               <div
                 style={{
-                  fontSize: 13,
-                  color: 'rgba(255,255,255,.48)',
-                  letterSpacing: '.04em',
+                  marginTop: 4,
+                  fontSize: 11,
+                  color: 'rgba(255,255,255,.42)',
+                  letterSpacing: '.06em',
                 }}
               >
-                {isFake ? 'Synthetic voice probability' : 'Authentic voice probability'}
+                Model consensus agreement
               </div>
             </div>
 
-            <Wave tone={isFake ? 'fake' : 'real'} />
+            {/* 중단: 4-모델 카드 2×2 그리드 */}
+            <div
+              style={{
+                padding: '0 20px 14px',
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 10,
+              }}
+            >
+              {MODEL_ORDER.map((key) => {
+                const m = result.models[key];
+                const mIsFake = m.prediction === 'fake';
+                const mRgb = mIsFake ? '255,68,68' : '34,211,238';
+                const fakeProbPct = m.fake_prob * 100;
+                return (
+                  <div
+                    key={key}
+                    style={{
+                      border: `1px solid rgba(${mRgb},.5)`,
+                      background: `linear-gradient(135deg, rgba(${mRgb},.1), rgba(${mRgb},.02))`,
+                      borderRadius: 6,
+                      padding: '12px 14px',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      boxShadow: `0 0 16px rgba(${mRgb},.12)`,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: 8,
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          letterSpacing: '.14em',
+                          color: 'rgba(255,255,255,.92)',
+                        }}
+                      >
+                        {MODEL_LABEL[key]}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 9.5,
+                          fontWeight: 700,
+                          letterSpacing: '.18em',
+                          padding: '2px 8px',
+                          border: `1px solid rgba(${mRgb},.8)`,
+                          color: mIsFake ? '#FF7676' : '#7DEAF7',
+                          background: `rgba(${mRgb},.18)`,
+                          borderRadius: 2,
+                        }}
+                      >
+                        {mIsFake ? 'FAKE' : 'REAL'}
+                      </span>
+                    </div>
 
+                    {/* 메인 데이터 — fake 확률을 크게 강조 */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        justifyContent: 'space-between',
+                        marginBottom: 6,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                        <span
+                          style={{
+                            fontSize: 9,
+                            fontWeight: 600,
+                            letterSpacing: '.18em',
+                            color: 'rgba(255,255,255,.45)',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          fake
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 22,
+                            fontWeight: 800,
+                            lineHeight: 1,
+                            color: mIsFake ? '#FF8888' : '#9CEEF7',
+                            letterSpacing: '-.02em',
+                            textShadow: `0 0 12px rgba(${mRgb},.45)`,
+                          }}
+                        >
+                          {fakeProbPct.toFixed(1)}
+                          <span style={{ fontSize: 13, marginLeft: 2, opacity: 0.7 }}>%</span>
+                        </span>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: 'rgba(255,255,255,.55)',
+                          letterSpacing: '.04em',
+                          fontWeight: 500,
+                        }}
+                      >
+                        {m.inference_ms.toFixed(0)} ms
+                      </span>
+                    </div>
+
+                    {/* 확률 바 (fake_prob 기준) */}
+                    <div
+                      style={{
+                        position: 'relative',
+                        height: 6,
+                        background: 'rgba(255,255,255,.07)',
+                        borderRadius: 3,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: `${fakeProbPct}%`,
+                          background: `linear-gradient(90deg, rgba(${mRgb},.55), rgba(${mRgb},1))`,
+                          boxShadow: `0 0 10px rgba(${mRgb},.65)`,
+                          transition: 'width .6s ease-out',
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* 하단: 파일정보 + 총 추론 시간 */}
             <div
               style={{
                 flexShrink: 0,
-                padding: '10px 20px 14px',
-                borderTop: `1px solid rgba(${themeRgb},.14)`,
-                background: `rgba(${themeRgb},.03)`,
+                padding: '12px 20px 16px',
+                borderTop: `1px solid rgba(${themeRgb},.22)`,
+                background: `rgba(${themeRgb},.05)`,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 16,
               }}
             >
-              <div
+              <span
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: '5px 24px',
+                  fontSize: 11,
+                  color: 'rgba(255,255,255,.5)',
+                  letterSpacing: '.06em',
+                  fontWeight: 600,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  flex: 1,
+                  minWidth: 0,
+                }}
+                title={result.filename ?? file?.name ?? 'unknown.wav'}
+              >
+                <span style={{ color: 'rgba(255,255,255,.32)', marginRight: 6 }}>FILE //</span>
+                <span style={{ color: 'rgba(255,255,255,.92)', fontWeight: 600 }}>
+                  {result.filename ?? file?.name ?? 'unknown.wav'}
+                </span>
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'rgba(255,255,255,.55)',
+                  letterSpacing: '.06em',
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap',
                 }}
               >
-                {diagnostics.map((r, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: '8.5px',
-                        color: 'rgba(255,255,255,.28)',
-                        letterSpacing: '.04em',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {r.label}:
-                    </span>
-                    <span
-                      style={{
-                        fontSize: '8.5px',
-                        fontWeight: 700,
-                        letterSpacing: '.06em',
-                        color: r.ok ? 'rgba(34,211,238,.85)' : '#FF4444',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {r.val}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div
-                style={{
-                  marginTop: 7,
-                  paddingTop: 7,
-                  borderTop: '1px solid rgba(255,255,255,.05)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: '8px',
-                    color: 'rgba(255,255,255,.22)',
-                    letterSpacing: '.04em',
-                  }}
-                >
-                  File:{' '}
-                  <span style={{ color: 'rgba(255,255,255,.45)' }}>
-                    `{result.filename ?? file?.name ?? 'unknown.wav'}`
-                  </span>
-                </span>
-                <span
-                  style={{
-                    fontSize: '8px',
-                    color: 'rgba(255,255,255,.22)',
-                    letterSpacing: '.04em',
-                  }}
-                >
-                  {result.inference_ms !== undefined
-                    ? `Analysed in ${result.inference_ms.toFixed(0)} ms`
-                    : 'Analysed'}
-                </span>
-              </div>
+                {result.total_inference_ms !== undefined
+                  ? `${result.total_inference_ms.toFixed(0)} ms`
+                  : 'Analysed'}
+              </span>
             </div>
           </div>
         )}
