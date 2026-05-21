@@ -1,34 +1,77 @@
 # Voice Authenticity Detector — Web Demo
 
-실제 음성과 합성 음성을 판별하는 딥러닝 모델 시연용 웹뷰.
+실제 음성과 합성(딥페이크) 음성을 **4개 모델로 동시 판별**하는 데모.
+WAV를 업로드하면 GRU / LCNN / CRNN / XLS-R+AASIST가 각자 추론하고, 모델별 결과 + 다수결 consensus를 카드 4장으로 보여준다.
+
+## 🌐 라이브 데모
+
+| | URL |
+|---|---|
+| **프론트엔드 (Vercel)** | https://voice-anti-spoofing.vercel.app |
+| **백엔드 API (HF Spaces)** | https://baekkyun-voice-spoofing-detector.hf.space |
+
+> HF Spaces 무료 티어는 48시간 미사용 시 sleep. 시연 10분 전에 위 프론트 URL 한 번 열어두면 health ping이 자동으로 컨테이너를 깨움.
 
 ## 구성
 
 ```
 deeplearning_web_view/
-├── frontend/      # Next.js 16 + Tailwind v4 + shadcn (21st.dev 호환)
-└── backend/       # FastAPI + (PyTorch 모델 자리)
+├── frontend/                       # Next.js 16 + React 19 + Tailwind v4
+│   └── src/components/upload-form.tsx   # 업로드 + 4-카드 결과 그리드
+├── backend/                        # FastAPI + PyTorch
+│   ├── main.py                     # /predict 엔드포인트
+│   ├── model.py                    # predict_all_models() — 4-모델 통합 추론
+│   ├── models/
+│   │   ├── architectures.py        # 4개 nn.Module 클래스
+│   │   ├── preprocess.py           # mel-spec + XLS-R raw waveform
+│   │   └── weights/                # .pt 4개 (gitignored)
+│   └── tests/test_predict_smoke.py
+└── docs/
+    ├── project_outline.md          # 전체 설계 문서
+    └── hf_spaces_deploy.md         # HF Spaces 배포 가이드 (7단계)
 ```
 
-- **프론트엔드**: WAV 업로드 UI, 결과 시각화, Dotted Surface 배경
-- **백엔드**: WAV 디코딩 → 모델 추론 → `{real_prob, fake_prob}` 반환
-- **현재 모델**: 결정론적 stub (해시 기반). 실제 모델 학습 후 `backend/model.py`의 `predict_authenticity` 함수만 교체.
+| 모델 | 입력 | 특징 |
+|---|---|---|
+| GRU | mel (80, 400) | Bi-GRU 시계열 |
+| LCNN | mel (80, 400) | Light CNN + MaxFeatureMap |
+| CRNN | mel (80, 400) | CNN + Bi-GRU 결합 |
+| XLS-R + AASIST | raw 5초 16kHz | facebook/wav2vec2-xls-r-300m 임베딩 → AASIST 분류 |
+
+## 응답 스키마 (`POST /predict`)
+
+```json
+{
+  "filename": "sample.wav",
+  "sample_rate": 16000,
+  "duration_sec": 4.21,
+  "total_inference_ms": 365.5,
+  "models": {
+    "gru":         {"real_prob": 0.83, "fake_prob": 0.17, "prediction": "real", "inference_ms": 12.3},
+    "lcnn":        {"real_prob": 0.91, "fake_prob": 0.09, "prediction": "real", "inference_ms": 18.7},
+    "crnn":        {"real_prob": 0.78, "fake_prob": 0.22, "prediction": "real", "inference_ms": 22.1},
+    "xlsr_aasist": {"real_prob": 0.95, "fake_prob": 0.05, "prediction": "real", "inference_ms": 312.4}
+  },
+  "consensus": {"prediction": "real", "agreement": 1.0}
+}
+```
+
+`consensus.agreement` 는 4-모델 다수결 일치 비율 (1.0 = 4/4, 0.75 = 3/4 등).
 
 ## 로컬 개발
 
-터미널 2개 띄우고:
-
 ```bash
-# 1번 터미널 — 백엔드
+# 1번 터미널 — 백엔드 (port 8000)
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+# backend/models/weights/ 에 .pt 4개가 있어야 부팅 성공
 uvicorn main:app --reload --port 8000
 ```
 
 ```bash
-# 2번 터미널 — 프론트엔드
+# 2번 터미널 — 프론트엔드 (port 3000)
 cd frontend
 cp .env.local.example .env.local   # NEXT_PUBLIC_API_URL=http://localhost:8000
 npm install
@@ -37,63 +80,24 @@ npm run dev
 
 http://localhost:3000 접속.
 
-## 모델 교체
-
-`backend/model.py` 상단의 docstring에 PyTorch 교체 예시가 있습니다. 시그니처만 지키면 GRU / LCNN / 파인튜닝 모델 모두 동일 인터페이스로 받습니다:
-
-```python
-def predict_authenticity(audio: np.ndarray, sample_rate: int) -> tuple[float, float]:
-    # (real_prob, fake_prob) 반환
-    ...
+테스트:
+```bash
+cd backend && .venv/bin/pytest tests/ -v
 ```
 
-체크포인트 파일은 `backend/checkpoints/` 폴더(이미 .gitignore 처리)에 두는 걸 권장합니다.
+## 배포
 
-## 배포 — 팀원과 공유하기
+자세한 절차는 [`docs/hf_spaces_deploy.md`](docs/hf_spaces_deploy.md) 참고. 요약:
 
-### 백엔드: Hugging Face Spaces (Docker)
-
-PyTorch + torchaudio 같은 무거운 ML 의존성을 무료로 받아주는 가장 안정적인 옵션.
-
-1. https://huggingface.co/new-space 에서 Space 생성 (SDK: **Docker**)
-2. `backend/` 디렉터리에 `Dockerfile` 추가:
-   ```dockerfile
-   FROM python:3.11-slim
-   WORKDIR /app
-   RUN apt-get update && apt-get install -y libsndfile1 && rm -rf /var/lib/apt/lists/*
-   COPY requirements.txt .
-   RUN pip install --no-cache-dir -r requirements.txt
-   COPY . .
-   EXPOSE 7860
-   CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
-   ```
-3. HF Space는 7860 포트 강제 → `Dockerfile`에서 노출
-4. Space 저장소를 backend 코드로 채우고 push
-5. URL: `https://<username>-<space-name>.hf.space`
-6. Space의 **Settings → Variables**에서 `ALLOWED_ORIGINS` 에 Vercel 프론트 도메인 추가
-
-### 프론트엔드: Vercel
-
-1. https://vercel.com/new — GitHub 저장소 연결 (또는 `vercel` CLI)
-2. **Root Directory**: `frontend`
-3. **Environment Variables**:
-   - `NEXT_PUBLIC_API_URL` = `https://<username>-<space-name>.hf.space`
-4. Deploy
-
-배포 완료되면 `https://<project>.vercel.app` 주소를 팀원에게 공유.
-
-### CORS 주의
-
-- `backend/main.py`는 `*.vercel.app` 도메인은 자동 허용 (preview/production 모두)
-- 커스텀 도메인 쓰면 HF Space의 `ALLOWED_ORIGINS` 환경변수에 추가
+- **백엔드** — HF Spaces (Docker, CPU Basic 무료) — Dockerfile에서 XLS-R 베이스 ~1.2GB를 빌드 시 사전 다운로드
+- **프론트엔드** — Vercel — Root Directory `frontend`, 환경변수 `NEXT_PUBLIC_API_URL` 만 설정
+- **CORS** — `backend/main.py`가 `*.vercel.app` 도메인은 자동 허용. 커스텀 도메인은 HF Space의 `ALLOWED_ORIGINS` 변수에 추가
 
 ## 기술 스택
 
 | 영역 | 기술 |
 |------|------|
-| 프론트 프레임워크 | Next.js 16 (App Router, Turbopack) |
-| 스타일링 | Tailwind CSS v4 + shadcn/ui |
-| 배경 컴포넌트 | three.js + next-themes (21st.dev Dotted Surface) |
-| 백엔드 프레임워크 | FastAPI |
-| 오디오 디코딩 | soundfile (libsndfile) |
-| 모델 (예정) | PyTorch — GRU / LCNN / SoTA 파인튜닝 |
+| 프론트 | Next.js 16 (App Router, Turbopack), React 19, Tailwind v4 |
+| 백엔드 | FastAPI, soundfile, librosa, NumPy |
+| 모델 | PyTorch 2.10 (CPU), transformers 5.0 (XLS-R) |
+| 배포 | Vercel (frontend), Hugging Face Spaces Docker (backend) |
