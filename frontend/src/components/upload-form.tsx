@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AnimatedCounter } from '@/components/animated-counter';
 
 type ModelKey = 'gru' | 'lcnn' | 'crnn' | 'xlsr_aasist';
 
@@ -374,8 +373,6 @@ export function UploadForm() {
   };
 
   const isFake = result?.consensus.prediction === 'fake';
-  /* consensus 합의도 (0~100) — 큰 숫자에 사용. 4-모델 동의 비율을 %로 표시 */
-  const pct = result ? result.consensus.agreement * 100 : 0;
   const agreeCount = result ? Math.round(result.consensus.agreement * 4) : 0;
 
   /* 색·테마 ─ FAKE = 빨강, REAL = 시안 (v3 원본과 동일한 값) */
@@ -393,6 +390,7 @@ export function UploadForm() {
         fontFamily: "'Courier New',Courier,monospace",
         WebkitFontSmoothing: 'subpixel-antialiased',
         MozOsxFontSmoothing: 'auto',
+        zoom: 1.2,
       }}
     >
       <div
@@ -950,27 +948,27 @@ export function UploadForm() {
                 className="anim-ci"
                 style={{
                   marginTop: 10,
-                  fontSize: 'clamp(56px,9vw,76px)',
+                  fontSize: 'clamp(64px,10vw,92px)',
                   fontWeight: 900,
                   lineHeight: 1,
-                  color: '#fff',
-                  letterSpacing: '-2px',
+                  color: isFake ? '#FF6262' : '#22D3EE',
+                  letterSpacing: '.04em',
                   textShadow: isFake
-                    ? '0 0 50px rgba(255,80,80,.55)'
-                    : '0 0 50px rgba(34,211,238,.5)',
+                    ? '0 0 50px rgba(255,80,80,.65)'
+                    : '0 0 50px rgba(34,211,238,.6)',
                 }}
               >
-                <AnimatedCounter value={pct} decimals={0} />%
+                {isFake ? 'FAKE' : 'AUTHENTIC'}
               </div>
               <div
                 style={{
-                  marginTop: 4,
+                  marginTop: 6,
                   fontSize: 11,
                   color: 'rgba(255,255,255,.42)',
                   letterSpacing: '.06em',
                 }}
               >
-                Model consensus agreement
+                Final verdict · {agreeCount}/4 models agreed
               </div>
             </div>
 
