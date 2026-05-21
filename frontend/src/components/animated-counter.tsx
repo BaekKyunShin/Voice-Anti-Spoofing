@@ -20,6 +20,16 @@ export function AnimatedCounter({
 
   useEffect(() => {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+
+    // prefers-reduced-motion 시 즉시 목표값으로 점프
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      setDisplay(value);
+      return;
+    }
+
     startTimeRef.current = null;
     startValueRef.current = display;
 
@@ -42,5 +52,9 @@ export function AnimatedCounter({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, durationMs]);
 
-  return <>{display.toFixed(decimals)}</>;
+  return (
+    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+      {display.toFixed(decimals)}
+    </span>
+  );
 }

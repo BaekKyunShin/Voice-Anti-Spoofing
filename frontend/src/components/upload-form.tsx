@@ -33,6 +33,23 @@ const MODEL_LABEL: Record<ModelKey, string> = {
   crnn: 'CRNN',
   xlsr_aasist: 'XLS-R + AASIST',
 };
+const MODEL_DESC: Record<ModelKey, string> = {
+  gru: 'Bi-GRU 시계열 분류',
+  lcnn: 'Light CNN + MaxFeatureMap',
+  crnn: 'CNN + Bi-GRU 결합',
+  xlsr_aasist: 'wav2vec2-xls-r-300m + AASIST',
+};
+
+const ANALYZING_STEPS = [
+  'Decoding WAV…',
+  'Computing mel-spectrogram…',
+  'Running GRU…',
+  'Running LCNN…',
+  'Running CRNN…',
+  'Running XLS-R+AASIST…',
+];
+const STEP_INTERVAL_MS = 850;
+const COLD_START_HINT_MS = 8000;
 
 type ApiHealth = 'unknown' | 'online' | 'offline';
 type Stage = 'IDLE' | 'ANALYZING' | 'RESULT';
@@ -244,10 +261,10 @@ function Corners({ color = 'rgba(34,211,238,.4)' }: { color?: string }) {
   const base: React.CSSProperties = { position: 'absolute', width: 13, height: 13 };
   return (
     <>
-      <div className="anim-cb" style={{ ...base, top: 10, left: 10, borderTop: s, borderLeft: s }} />
-      <div className="anim-cb" style={{ ...base, top: 10, right: 10, borderTop: s, borderRight: s }} />
-      <div className="anim-cb" style={{ ...base, bottom: 10, left: 10, borderBottom: s, borderLeft: s }} />
-      <div className="anim-cb" style={{ ...base, bottom: 10, right: 10, borderBottom: s, borderRight: s }} />
+      <div className="anim-cb" aria-hidden="true" style={{ ...base, top: 10, left: 10, borderTop: s, borderLeft: s }} />
+      <div className="anim-cb" aria-hidden="true" style={{ ...base, top: 10, right: 10, borderTop: s, borderRight: s }} />
+      <div className="anim-cb" aria-hidden="true" style={{ ...base, bottom: 10, left: 10, borderBottom: s, borderLeft: s }} />
+      <div className="anim-cb" aria-hidden="true" style={{ ...base, bottom: 10, right: 10, borderBottom: s, borderRight: s }} />
     </>
   );
 }
@@ -263,7 +280,31 @@ export function UploadForm() {
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [apiHealth, setApiHealth] = useState<ApiHealth>('unknown');
+  const [analyzingStep, setAnalyzingStep] = useState(0);
+  const [showColdStartHint, setShowColdStartHint] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  /* ANALYZING 단계 텍스트 순환 + 콜드스타트 힌트 */
+  useEffect(() => {
+    if (stage !== 'ANALYZING') {
+      setAnalyzingStep(0);
+      setShowColdStartHint(false);
+      return;
+    }
+    setAnalyzingStep(0);
+    setShowColdStartHint(false);
+    const stepTimer = setInterval(() => {
+      setAnalyzingStep((s) => Math.min(s + 1, ANALYZING_STEPS.length - 1));
+    }, STEP_INTERVAL_MS);
+    const hintTimer = setTimeout(
+      () => setShowColdStartHint(true),
+      COLD_START_HINT_MS,
+    );
+    return () => {
+      clearInterval(stepTimer);
+      clearTimeout(hintTimer);
+    };
+  }, [stage]);
 
   /* API 헬스 폴링 */
   useEffect(() => {
@@ -291,7 +332,7 @@ export function UploadForm() {
       return;
     }
     if (!selected.name.toLowerCase().endsWith('.wav')) {
-      setError('WAV 파일만 업로드 가능합니다.');
+      setError('WAV 파일만 업로드 가능합니다. 다른 파일을 선택해 주세요.');
       return;
     }
     setFile(selected);
@@ -418,7 +459,7 @@ export function UploadForm() {
             padding: '13px 20px',
             borderBottom: `1px solid ${cardBorder}`,
             background: `rgba(${stage === 'RESULT' ? themeRgb : '34,211,238'},.04)`,
-            transition: 'all .5s',
+            transition: 'background-color .5s, border-color .5s',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -433,8 +474,9 @@ export function UploadForm() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontSize: 13,
-                transition: 'all .5s',
+                transition: 'background-color .5s, border-color .5s',
               }}
+              aria-hidden="true"
             >
               🎙️
             </div>
@@ -452,16 +494,19 @@ export function UploadForm() {
           {stage !== 'IDLE' && (
             <button
               onClick={reset}
+              className="reset-btn"
               style={{
                 background: 'transparent',
                 border: 'none',
-                color: 'rgba(255,255,255,.35)',
+                color: 'rgba(255,255,255,.45)',
                 cursor: 'pointer',
                 fontSize: 22,
                 lineHeight: 1,
-                padding: '0 3px',
+                padding: '0 6px',
+                borderRadius: 4,
+                transition: 'color .15s, background-color .15s',
               }}
-              aria-label="reset"
+              aria-label="결과 닫고 처음으로"
             >
               ×
             </button>
@@ -611,6 +656,7 @@ export function UploadForm() {
             >
               {error && (
                 <div
+                  role="alert"
                   style={{
                     fontSize: '9px',
                     letterSpacing: '.12em',
@@ -648,22 +694,25 @@ export function UploadForm() {
                   >
                     {file.name}
                   </span>
-                  <span style={{ color: 'rgba(255,255,255,.35)' }}>
-                    {(file.size / 1024).toFixed(1)} KB
+                  <span style={{ color: 'rgba(255,255,255,.35)', fontVariantNumeric: 'tabular-nums' }}>
+                    {`${(file.size / 1024).toFixed(1)} KB`}
                   </span>
                   <button
                     onClick={() => handleFile(null)}
+                    className="dismiss-btn"
                     style={{
                       background: 'transparent',
                       border: 'none',
-                      color: 'rgba(255,255,255,.35)',
+                      color: 'rgba(255,255,255,.45)',
                       cursor: 'pointer',
                       fontSize: 14,
                       lineHeight: 1,
-                      padding: '0 2px',
+                      padding: '0 4px',
+                      borderRadius: 3,
                       fontFamily: 'inherit',
+                      transition: 'color .15s',
                     }}
-                    aria-label="파일 제거"
+                    aria-label="선택한 파일 제거"
                   >
                     ×
                   </button>
@@ -672,17 +721,20 @@ export function UploadForm() {
               <button
                 onClick={() => {
                   if (apiHealth === 'offline') {
-                    setError('백엔드 서버가 꺼져 있습니다. uvicorn :8000을 먼저 실행해주세요.');
+                    setError('백엔드 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.');
                     return;
                   }
+                  if (apiHealth === 'unknown') return; // 워밍업 중엔 무시
                   if (file) startScan();
                   else inputRef.current?.click();
                 }}
+                disabled={apiHealth === 'unknown'}
+                className="start-btn"
                 style={{
                   background: 'rgba(34,211,238,.05)',
                   border: '1px solid rgba(34,211,238,.55)',
                   color: '#67E8F9',
-                  cursor: 'pointer',
+                  cursor: apiHealth === 'unknown' ? 'wait' : 'pointer',
                   padding: '12px 40px',
                   fontSize: '12px',
                   fontWeight: 700,
@@ -691,11 +743,17 @@ export function UploadForm() {
                   boxShadow:
                     '0 0 22px rgba(34,211,238,.22), inset 0 0 18px rgba(34,211,238,.04)',
                   textShadow: '0 0 8px rgba(34,211,238,.6)',
-                  transition: 'all .2s',
+                  transition: 'background-color .2s, box-shadow .2s, color .2s',
                   fontFamily: 'inherit',
+                  touchAction: 'manipulation',
+                  opacity: apiHealth === 'unknown' ? 0.7 : 1,
                 }}
               >
-                {file ? '[ START BIO-SCAN ]' : '[ SELECT .WAV TO SCAN ]'}
+                {apiHealth === 'unknown'
+                  ? '[ WARMING UP… ]'
+                  : file
+                    ? '[ START BIO-SCAN ]'
+                    : '[ SELECT .WAV TO SCAN ]'}
               </button>
               {apiHealth === 'offline' && (
                 <div
@@ -706,7 +764,7 @@ export function UploadForm() {
                     marginTop: 2,
                   }}
                 >
-                  BACKEND OFFLINE — start uvicorn :8000
+                  BACKEND OFFLINE — 서비스 연결 실패
                 </div>
               )}
             </div>
@@ -739,7 +797,7 @@ export function UploadForm() {
                   aria-label="backend offline"
                 />
               )}
-              SYSTEM STATUS: WAITING FOR INPUT...
+              SYSTEM STATUS: WAITING FOR INPUT…
             </div>
           </div>
         )}
@@ -814,19 +872,40 @@ export function UploadForm() {
                     background: 'rgba(34,211,238,.05)',
                     fontSize: 34,
                   }}
+                  aria-hidden="true"
                 >
                   🔍
                 </div>
               </div>
               <div
+                aria-live="polite"
                 style={{
-                  fontSize: '9px',
-                  letterSpacing: '.15em',
-                  color: 'rgba(34,211,238,.45)',
+                  fontSize: 11,
+                  letterSpacing: '.14em',
+                  color: 'rgba(34,211,238,.7)',
+                  minHeight: 16,
+                  fontVariantNumeric: 'tabular-nums',
                 }}
               >
-                [Scanning for Voice Cloning Artifacts...]
+                {ANALYZING_STEPS[analyzingStep]}
               </div>
+              {showColdStartHint && (
+                <div
+                  style={{
+                    marginTop: -10,
+                    fontSize: '8.5px',
+                    letterSpacing: '.16em',
+                    color: 'rgba(255,255,255,.42)',
+                    textAlign: 'center',
+                    maxWidth: 340,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  First request can take ~30s on cold start.
+                  <br />
+                  Models warm up after the first scan…
+                </div>
+              )}
             </div>
             <Wave tone="analyzing" />
           </div>
@@ -836,10 +915,13 @@ export function UploadForm() {
         {stage === 'RESULT' && result && (
           <div
             className="anim-fi"
+            role="status"
+            aria-live="polite"
             style={{
               minHeight: BODY_H + 'px',
               display: 'flex',
               flexDirection: 'column',
+              fontVariantNumeric: 'tabular-nums',
             }}
           >
             {/* 상단: consensus 배지 + 합의도 % */}
@@ -907,7 +989,7 @@ export function UploadForm() {
                 gap: 10,
               }}
             >
-              {MODEL_ORDER.map((key) => {
+              {MODEL_ORDER.map((key, i) => {
                 const m = result.models[key];
                 const mIsFake = m.prediction === 'fake';
                 const mRgb = mIsFake ? '255,68,68' : '34,211,238';
@@ -915,34 +997,52 @@ export function UploadForm() {
                 return (
                   <div
                     key={key}
+                    className="anim-card-in"
                     style={{
                       border: `1px solid rgba(${mRgb},.5)`,
                       background: `linear-gradient(135deg, rgba(${mRgb},.1), rgba(${mRgb},.02))`,
                       borderRadius: 6,
-                      padding: '12px 14px',
+                      padding: '12px 14px 14px',
                       position: 'relative',
                       overflow: 'hidden',
                       boxShadow: `0 0 16px rgba(${mRgb},.12)`,
+                      animationDelay: `${i * 120}ms`,
                     }}
                   >
                     <div
                       style={{
                         display: 'flex',
                         justifyContent: 'space-between',
-                        alignItems: 'center',
+                        alignItems: 'flex-start',
                         marginBottom: 8,
                       }}
                     >
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          letterSpacing: '.14em',
-                          color: 'rgba(255,255,255,.92)',
-                        }}
-                      >
-                        {MODEL_LABEL[key]}
-                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            letterSpacing: '.14em',
+                            color: 'rgba(255,255,255,.92)',
+                          }}
+                        >
+                          {MODEL_LABEL[key]}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 9,
+                            letterSpacing: '.04em',
+                            color: 'rgba(255,255,255,.5)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                          translate="no"
+                          title={MODEL_DESC[key]}
+                        >
+                          {MODEL_DESC[key]}
+                        </span>
+                      </div>
                       <span
                         style={{
                           fontSize: 9.5,
@@ -953,6 +1053,8 @@ export function UploadForm() {
                           color: mIsFake ? '#FF7676' : '#7DEAF7',
                           background: `rgba(${mRgb},.18)`,
                           borderRadius: 2,
+                          flexShrink: 0,
+                          marginLeft: 8,
                         }}
                       >
                         {mIsFake ? 'FAKE' : 'REAL'}
@@ -1000,9 +1102,10 @@ export function UploadForm() {
                           color: 'rgba(255,255,255,.55)',
                           letterSpacing: '.04em',
                           fontWeight: 500,
+                          fontVariantNumeric: 'tabular-nums',
                         }}
                       >
-                        {m.inference_ms.toFixed(0)} ms
+                        {`${m.inference_ms.toFixed(0)} ms`}
                       </span>
                     </div>
 
@@ -1073,10 +1176,11 @@ export function UploadForm() {
                   letterSpacing: '.06em',
                   fontWeight: 500,
                   whiteSpace: 'nowrap',
+                  fontVariantNumeric: 'tabular-nums',
                 }}
               >
                 {result.total_inference_ms !== undefined
-                  ? `${result.total_inference_ms.toFixed(0)} ms`
+                  ? `${result.total_inference_ms.toFixed(0)} ms`
                   : 'Analysed'}
               </span>
             </div>

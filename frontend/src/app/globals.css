@@ -154,6 +154,10 @@
   50%      { opacity: .9; }
 }
 @keyframes dashFlow { to { stroke-dashoffset: -24; } }
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 @layer utilities {
   .anim-r1 { animation: rOut 2.2s ease-out infinite; }
@@ -170,4 +174,46 @@
   .anim-glitch-r { animation: glitchR .08s steps(1) infinite; }
   .anim-glitch-b { animation: glitchB .13s steps(1) infinite; }
   .anim-dash { animation: dashFlow 1.4s linear infinite; }
+  .anim-card-in { animation: cardIn .42s ease-out backwards; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-r1, .anim-r2, .anim-r3,
+  .anim-gp, .anim-gp-rose,
+  .anim-bk, .anim-bk2,
+  .anim-fi, .anim-ci, .anim-cb,
+  .anim-scan, .anim-glitch-r, .anim-glitch-b,
+  .anim-dash, .anim-card-in {
+    animation: none !important;
+  }
+}
+
+/* 버튼 hover / focus-visible — inline style 한계 보완 */
+.reset-btn:hover,
+.reset-btn:focus-visible {
+  color: rgba(255, 255, 255, 0.95) !important;
+  background-color: rgba(255, 255, 255, 0.06) !important;
+}
+.reset-btn:focus-visible {
+  outline: 1px solid rgba(34, 211, 238, 0.65);
+  outline-offset: 1px;
+}
+.start-btn:hover:not(:disabled),
+.start-btn:focus-visible:not(:disabled) {
+  background-color: rgba(34, 211, 238, 0.12) !important;
+  box-shadow:
+    0 0 28px rgba(34, 211, 238, 0.32),
+    inset 0 0 22px rgba(34, 211, 238, 0.08) !important;
+}
+.start-btn:focus-visible {
+  outline: 1px solid rgba(34, 211, 238, 0.85);
+  outline-offset: 2px;
+}
+.dismiss-btn:hover,
+.dismiss-btn:focus-visible {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+.dismiss-btn:focus-visible {
+  outline: 1px solid rgba(34, 211, 238, 0.55);
+  outline-offset: 1px;
 }
