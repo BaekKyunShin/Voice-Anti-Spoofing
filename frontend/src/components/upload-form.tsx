@@ -33,12 +33,6 @@ const MODEL_LABEL: Record<ModelKey, string> = {
   crnn: 'CRNN',
   xlsr_aasist: 'XLS-R + AASIST',
 };
-const MODEL_DESC: Record<ModelKey, string> = {
-  gru: 'Bi-GRU 시계열 분류',
-  lcnn: 'Light CNN + MaxFeatureMap',
-  crnn: 'CNN + Bi-GRU 결합',
-  xlsr_aasist: 'wav2vec2-xls-r-300m + AASIST',
-};
 
 const ANALYZING_STEPS = [
   'Decoding WAV…',
@@ -1002,7 +996,7 @@ export function UploadForm() {
                       border: `1px solid rgba(${mRgb},.5)`,
                       background: `linear-gradient(135deg, rgba(${mRgb},.1), rgba(${mRgb},.02))`,
                       borderRadius: 6,
-                      padding: '12px 14px 14px',
+                      padding: '12px 14px',
                       position: 'relative',
                       overflow: 'hidden',
                       boxShadow: `0 0 16px rgba(${mRgb},.12)`,
@@ -1013,36 +1007,20 @@ export function UploadForm() {
                       style={{
                         display: 'flex',
                         justifyContent: 'space-between',
-                        alignItems: 'flex-start',
+                        alignItems: 'center',
                         marginBottom: 8,
                       }}
                     >
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-                        <span
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            letterSpacing: '.14em',
-                            color: 'rgba(255,255,255,.92)',
-                          }}
-                        >
-                          {MODEL_LABEL[key]}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: 9,
-                            letterSpacing: '.04em',
-                            color: 'rgba(255,255,255,.5)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                          translate="no"
-                          title={MODEL_DESC[key]}
-                        >
-                          {MODEL_DESC[key]}
-                        </span>
-                      </div>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          letterSpacing: '.14em',
+                          color: 'rgba(255,255,255,.92)',
+                        }}
+                      >
+                        {MODEL_LABEL[key]}
+                      </span>
                       <span
                         style={{
                           fontSize: 9.5,
@@ -1053,8 +1031,6 @@ export function UploadForm() {
                           color: mIsFake ? '#FF7676' : '#7DEAF7',
                           background: `rgba(${mRgb},.18)`,
                           borderRadius: 2,
-                          flexShrink: 0,
-                          marginLeft: 8,
                         }}
                       >
                         {mIsFake ? 'FAKE' : 'REAL'}
