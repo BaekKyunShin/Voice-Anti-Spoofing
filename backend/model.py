@@ -37,7 +37,10 @@ _BUNDLE: dict = {}
 
 
 def _load_state_dict(model: torch.nn.Module, path: Path) -> torch.nn.Module:
-    state = torch.load(path, map_location=DEVICE)
+    # PyTorch 2.6+ 기본값이 weights_only=True 인데 우리 .pt는 학습 시
+    # 같이 pickle된 객체(numpy scalar 등)가 있어 거부됨. 자기 학습한 trusted
+    # weights라 안전.
+    state = torch.load(path, map_location=DEVICE, weights_only=False)
     if isinstance(state, dict) and "state_dict" in state:
         state = state["state_dict"]
     model.load_state_dict(state)
