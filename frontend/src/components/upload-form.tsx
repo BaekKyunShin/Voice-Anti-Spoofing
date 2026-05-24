@@ -5,14 +5,13 @@ import { useEffect, useRef, useState } from 'react';
 type ModelKey = 'gru' | 'lcnn' | 'crnn' | 'xlsr_aasist';
 
 type ModelResult = {
-  real_prob: number;
-  fake_prob: number;
-  prediction: 'real' | 'fake';
+  bonafide_prob: number; // ASVspoof CM score, 높을수록 진짜
+  prediction: 'bonafide' | 'spoof';
   inference_ms: number;
 };
 
 type Consensus = {
-  prediction: 'real' | 'fake';
+  prediction: 'bonafide' | 'spoof';
   agreement: number; // 0.5, 0.75, 1.0 ...
 };
 
@@ -345,8 +344,8 @@ export function UploadForm() {
         throw new Error(text || `요청 실패 (${res.status})`);
       }
       const data: PredictionResult = await res.json();
-      // 글리치 → RESULT (consensus FAKE면 글리치, REAL은 부드럽게)
-      if (data.consensus.prediction === 'fake') {
+      // 글리치 → RESULT (consensus spoof면 글리치, bonafide는 부드럽게)
+      if (data.consensus.prediction === 'spoof') {
         setGlitch(true);
         setTimeout(() => {
           setGlitch(false);
@@ -372,7 +371,7 @@ export function UploadForm() {
     if (inputRef.current) inputRef.current.value = '';
   };
 
-  const isFake = result?.consensus.prediction === 'fake';
+  const isFake = result?.consensus.prediction === 'spoof';
   const agreeCount = result ? Math.round(result.consensus.agreement * 4) : 0;
 
   /* 색·테마 ─ FAKE = 빨강, REAL = 시안 (v3 원본과 동일한 값) */
@@ -983,9 +982,9 @@ export function UploadForm() {
             >
               {MODEL_ORDER.map((key, i) => {
                 const m = result.models[key];
-                const mIsFake = m.prediction === 'fake';
+                const mIsFake = m.prediction === 'spoof';
                 const mRgb = mIsFake ? '255,68,68' : '34,211,238';
-                const fakeProbPct = m.fake_prob * 100;
+                const bonafidePct = m.bonafide_prob * 100;
                 return (
                   <div
                     key={key}
@@ -1031,11 +1030,11 @@ export function UploadForm() {
                           borderRadius: 2,
                         }}
                       >
-                        {mIsFake ? 'FAKE' : 'REAL'}
+                        {mIsFake ? 'FAKE' : 'AUTHENTIC'}
                       </span>
                     </div>
 
-                    {/* 메인 데이터 — fake 확률을 크게 강조 */}
+                    {/* 메인 데이터 — bonafide_prob (ASVspoof CM score)를 크게 강조 */}
                     <div
                       style={{
                         display: 'flex',
@@ -1054,7 +1053,7 @@ export function UploadForm() {
                             textTransform: 'uppercase',
                           }}
                         >
-                          fake
+                          bonafide
                         </span>
                         <span
                           style={{
@@ -1066,7 +1065,7 @@ export function UploadForm() {
                             textShadow: `0 0 12px rgba(${mRgb},.45)`,
                           }}
                         >
-                          {fakeProbPct.toFixed(1)}
+                          {bonafidePct.toFixed(1)}
                           <span style={{ fontSize: 13, marginLeft: 2, opacity: 0.7 }}>%</span>
                         </span>
                       </div>
@@ -1083,7 +1082,7 @@ export function UploadForm() {
                       </span>
                     </div>
 
-                    {/* 확률 바 (fake_prob 기준) */}
+                    {/* 확률 바 (bonafide_prob 기준 — 꽉 찰수록 진짜 자신감) */}
                     <div
                       style={{
                         position: 'relative',
@@ -1099,7 +1098,7 @@ export function UploadForm() {
                           left: 0,
                           top: 0,
                           bottom: 0,
-                          width: `${fakeProbPct}%`,
+                          width: `${bonafidePct}%`,
                           background: `linear-gradient(90deg, rgba(${mRgb},.55), rgba(${mRgb},1))`,
                           boxShadow: `0 0 10px rgba(${mRgb},.65)`,
                           transition: 'width .6s ease-out',

@@ -47,14 +47,16 @@ deeplearning_web_view/
   "duration_sec": 4.21,
   "total_inference_ms": 365.5,
   "models": {
-    "gru":         {"real_prob": 0.83, "fake_prob": 0.17, "prediction": "real", "inference_ms": 12.3},
-    "lcnn":        {"real_prob": 0.91, "fake_prob": 0.09, "prediction": "real", "inference_ms": 18.7},
-    "crnn":        {"real_prob": 0.78, "fake_prob": 0.22, "prediction": "real", "inference_ms": 22.1},
-    "xlsr_aasist": {"real_prob": 0.95, "fake_prob": 0.05, "prediction": "real", "inference_ms": 312.4}
+    "gru":         {"bonafide_prob": 0.83, "prediction": "bonafide", "inference_ms": 12.3},
+    "lcnn":        {"bonafide_prob": 0.91, "prediction": "bonafide", "inference_ms": 18.7},
+    "crnn":        {"bonafide_prob": 0.78, "prediction": "bonafide", "inference_ms": 22.1},
+    "xlsr_aasist": {"bonafide_prob": 0.95, "prediction": "bonafide", "inference_ms": 312.4}
   },
-  "consensus": {"prediction": "real", "agreement": 1.0}
+  "consensus": {"prediction": "bonafide", "agreement": 1.0}
 }
 ```
+
+`bonafide_prob` — ASVspoof 표준 CM score. **높을수록 진짜(bonafide), 낮을수록 합성(spoof)**. 판정 임계값은 `0.5` 고정 (`backend/main.py:BONAFIDE_THRESHOLD`, 추후 EER 기반 튜닝 여지).
 
 `consensus.agreement` 는 4-모델 다수결 일치 비율 (1.0 = 4/4, 0.75 = 3/4 등).
 

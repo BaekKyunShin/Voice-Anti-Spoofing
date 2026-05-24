@@ -18,6 +18,10 @@ from model import load_all, predict_all_models
 MAX_FILE_BYTES = 25 * 1024 * 1024  # 25MB
 MODEL_KEYS = ("gru", "lcnn", "crnn", "xlsr_aasist")
 
+# ASVspoof 표준 CM score 임계값. bonafide_prob >= 이면 진짜로 판정.
+# 추후 EER 기반 튜닝 여지.
+BONAFIDE_THRESHOLD = 0.5
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -54,14 +58,13 @@ app.add_middleware(
 
 
 class ModelResult(BaseModel):
-    real_prob: float
-    fake_prob: float
-    prediction: str  # "real" | "fake"
+    bonafide_prob: float  # ASVspoof CM score. 높을수록 진짜.
+    prediction: str  # "bonafide" | "spoof"
     inference_ms: float
 
 
 class Consensus(BaseModel):
-    prediction: str  # "real" | "fake"
+    prediction: str  # "bonafide" | "spoof"
     agreement: float  # 0.0 ~ 1.0
 
 
@@ -85,15 +88,18 @@ def health() -> dict[str, str]:
 
 
 def _compute_consensus(models: dict[str, dict]) -> Consensus:
-    votes = ["real" if m["real_prob"] >= m["fake_prob"] else "fake" for m in models.values()]
-    real_count = votes.count("real")
-    fake_count = votes.count("fake")
-    if real_count >= fake_count:
-        prediction = "real"
-        agreement = real_count / len(votes)
+    votes = [
+        "bonafide" if m["bonafide_prob"] >= BONAFIDE_THRESHOLD else "spoof"
+        for m in models.values()
+    ]
+    bonafide_count = votes.count("bonafide")
+    spoof_count = votes.count("spoof")
+    if bonafide_count >= spoof_count:
+        prediction = "bonafide"
+        agreement = bonafide_count / len(votes)
     else:
-        prediction = "fake"
-        agreement = fake_count / len(votes)
+        prediction = "spoof"
+        agreement = spoof_count / len(votes)
     return Consensus(prediction=prediction, agreement=agreement)
 
 
@@ -127,9 +133,12 @@ async def predict(file: UploadFile = File(...)) -> PredictionResponse:
 
     models = {
         k: ModelResult(
-            real_prob=raw_results[k]["real_prob"],
-            fake_prob=raw_results[k]["fake_prob"],
-            prediction="real" if raw_results[k]["real_prob"] >= raw_results[k]["fake_prob"] else "fake",
+            bonafide_prob=raw_results[k]["bonafide_prob"],
+            prediction=(
+                "bonafide"
+                if raw_results[k]["bonafide_prob"] >= BONAFIDE_THRESHOLD
+                else "spoof"
+            ),
             inference_ms=raw_results[k]["inference_ms"],
         )
         for k in MODEL_KEYS

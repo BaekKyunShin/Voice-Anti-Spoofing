@@ -1,9 +1,11 @@
 """4-모델 음성 진위 판별 통합 추론.
 
 서버 부팅 시 _load_all()이 한 번 호출되어 4개 모델 + XLS-R 베이스를 RAM에 상주시킨다.
-predict_all_models()는 wav → 4개 모델 각각의 (real_prob, fake_prob, inference_ms)를 반환.
+predict_all_models()는 wav → 4개 모델 각각의 (bonafide_prob, inference_ms)를 반환.
 
-라벨: real=0, fake=1 (ipynb 셀 20 기준).
+학습 라벨: real=0, fake=1 (ipynb 셀 20 기준).
+→ softmax 출력의 0번째 원소가 곧 ASVspoof 표준 CM score = bonafide_prob.
+높을수록 진짜 음성.
 """
 
 from __future__ import annotations
@@ -65,33 +67,33 @@ def load_all() -> None:
     _BUNDLE["xlsr_base"] = xlsr.to(DEVICE)
 
 
-def _softmax_probs(logits: torch.Tensor) -> tuple[float, float]:
-    """logits (1, 2) → (real_prob, fake_prob). 라벨 0=real, 1=fake."""
+def _bonafide_prob(logits: torch.Tensor) -> float:
+    """logits (1, 2) → bonafide_prob. 라벨 0=real(=bonafide), 1=fake(=spoof)."""
     probs = F.softmax(logits, dim=-1).squeeze(0).tolist()
-    return float(probs[0]), float(probs[1])
+    return float(probs[0])
 
 
-def _run_gru(mel: np.ndarray) -> tuple[float, float]:
+def _run_gru(mel: np.ndarray) -> float:
     # (80, 400) → (1, 400, 80) — VoiceMelDataset.model_type="rnn"에서 transpose(0,1)와 동일
     x = torch.from_numpy(mel).transpose(0, 1).unsqueeze(0).to(DEVICE)
     with torch.no_grad():
-        return _softmax_probs(_BUNDLE["gru"](x))
+        return _bonafide_prob(_BUNDLE["gru"](x))
 
 
-def _run_lcnn(mel: np.ndarray) -> tuple[float, float]:
+def _run_lcnn(mel: np.ndarray) -> float:
     # (80, 400) → (1, 1, 80, 400)
     x = torch.from_numpy(mel).unsqueeze(0).unsqueeze(0).to(DEVICE)
     with torch.no_grad():
-        return _softmax_probs(_BUNDLE["lcnn"](x))
+        return _bonafide_prob(_BUNDLE["lcnn"](x))
 
 
-def _run_crnn(mel: np.ndarray) -> tuple[float, float]:
+def _run_crnn(mel: np.ndarray) -> float:
     x = torch.from_numpy(mel).unsqueeze(0).unsqueeze(0).to(DEVICE)
     with torch.no_grad():
-        return _softmax_probs(_BUNDLE["crnn"](x))
+        return _bonafide_prob(_BUNDLE["crnn"](x))
 
 
-def _run_xlsr_aasist(waveform: np.ndarray) -> tuple[float, float]:
+def _run_xlsr_aasist(waveform: np.ndarray) -> float:
     """raw waveform (80000,) → XLS-R 임베딩 추출 → AASIST 분류."""
     # transformers 5.0+: truncation=True 사용 시 max_length 필수.
     # 어차피 prepare_xlsr_waveform()이 이미 MAX_AUDIO_LENGTH로 잘라/패딩 했으므로 명시.
@@ -109,16 +111,15 @@ def _run_xlsr_aasist(waveform: np.ndarray) -> tuple[float, float]:
         xlsr_out = _BUNDLE["xlsr_base"](input_values, output_hidden_states=False)
         embedding = xlsr_out.last_hidden_state  # (1, seq_len, 1024)
         logits = _BUNDLE["xlsr_aasist"](embedding)
-    return _softmax_probs(logits)
+    return _bonafide_prob(logits)
 
 
 def _timed(fn, *args) -> dict:
     start = time.perf_counter()
-    real_prob, fake_prob = fn(*args)
+    bonafide_prob = fn(*args)
     elapsed_ms = (time.perf_counter() - start) * 1000
     return {
-        "real_prob": real_prob,
-        "fake_prob": fake_prob,
+        "bonafide_prob": bonafide_prob,
         "inference_ms": elapsed_ms,
     }
 
@@ -128,11 +129,13 @@ def predict_all_models(audio: np.ndarray, sample_rate: int) -> dict[str, dict]:
 
     Returns:
         {
-          "gru":          {"real_prob", "fake_prob", "inference_ms"},
+          "gru":          {"bonafide_prob", "inference_ms"},
           "lcnn":         {...},
           "crnn":         {...},
           "xlsr_aasist":  {...},
         }
+
+    bonafide_prob: ASVspoof 표준 CM score. 높을수록 진짜 음성.
     """
     if not _BUNDLE:
         load_all()

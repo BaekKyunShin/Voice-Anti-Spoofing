@@ -46,17 +46,19 @@ uvicorn main:app --reload --port 8000
   "duration_sec": 4.21,
   "total_inference_ms": 365.5,
   "models": {
-    "gru":         {"real_prob": 0.83, "fake_prob": 0.17, "prediction": "real", "inference_ms": 12.3},
-    "lcnn":        {"real_prob": 0.91, "fake_prob": 0.09, "prediction": "real", "inference_ms": 18.7},
-    "crnn":        {"real_prob": 0.78, "fake_prob": 0.22, "prediction": "real", "inference_ms": 22.1},
-    "xlsr_aasist": {"real_prob": 0.95, "fake_prob": 0.05, "prediction": "real", "inference_ms": 312.4}
+    "gru":         {"bonafide_prob": 0.83, "prediction": "bonafide", "inference_ms": 12.3},
+    "lcnn":        {"bonafide_prob": 0.91, "prediction": "bonafide", "inference_ms": 18.7},
+    "crnn":        {"bonafide_prob": 0.78, "prediction": "bonafide", "inference_ms": 22.1},
+    "xlsr_aasist": {"bonafide_prob": 0.95, "prediction": "bonafide", "inference_ms": 312.4}
   },
   "consensus": {
-    "prediction": "real",
+    "prediction": "bonafide",
     "agreement": 1.0
   }
 }
 ```
+
+`bonafide_prob` 는 ASVspoof 표준 CM score (높을수록 진짜). 판정 임계값은 `BONAFIDE_THRESHOLD = 0.5` (`main.py` 상단 상수).
 
 ## 환경 변수
 

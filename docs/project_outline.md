@@ -94,10 +94,10 @@ def predict_all_models(audio: np.ndarray, sample_rate: int) -> dict[str, dict]:
 
     Returns:
         {
-          "gru":          {"real_prob": 0.83, "fake_prob": 0.17, "inference_ms": 12.3},
-          "lcnn":         {"real_prob": 0.91, "fake_prob": 0.09, "inference_ms": 18.7},
-          "crnn":         {"real_prob": 0.78, "fake_prob": 0.22, "inference_ms": 22.1},
-          "xlsr_aasist":  {"real_prob": 0.95, "fake_prob": 0.05, "inference_ms": 312.4},
+          "gru":          {"bonafide_prob": 0.83, "inference_ms": 12.3},
+          "lcnn":         {"bonafide_prob": 0.91, "inference_ms": 18.7},
+          "crnn":         {"bonafide_prob": 0.78, "inference_ms": 22.1},
+          "xlsr_aasist":  {"bonafide_prob": 0.95, "inference_ms": 312.4},
         }
     """
 ```
@@ -141,19 +141,20 @@ def _init(cls, ckpt_path: str) -> torch.nn.Module:
   "duration_sec": 4.21,
   "total_inference_ms": 365.5,
   "models": {
-    "gru":         {"real_prob": 0.83, "fake_prob": 0.17, "prediction": "real", "inference_ms": 12.3},
-    "lcnn":        {"real_prob": 0.91, "fake_prob": 0.09, "prediction": "real", "inference_ms": 18.7},
-    "crnn":        {"real_prob": 0.78, "fake_prob": 0.22, "prediction": "real", "inference_ms": 22.1},
-    "xlsr_aasist": {"real_prob": 0.95, "fake_prob": 0.05, "prediction": "real", "inference_ms": 312.4}
+    "gru":         {"bonafide_prob": 0.83, "prediction": "bonafide", "inference_ms": 12.3},
+    "lcnn":        {"bonafide_prob": 0.91, "prediction": "bonafide", "inference_ms": 18.7},
+    "crnn":        {"bonafide_prob": 0.78, "prediction": "bonafide", "inference_ms": 22.1},
+    "xlsr_aasist": {"bonafide_prob": 0.95, "prediction": "bonafide", "inference_ms": 312.4}
   },
   "consensus": {
-    "prediction": "real",
+    "prediction": "bonafide",
     "agreement": 1.0
   }
 }
 ```
 
-- `consensus.prediction`: 다수결 (4개 중 다수가 real이면 real)
+- `bonafide_prob`: ASVspoof 표준 CM score (높을수록 진짜). 판정 임계값은 `BONAFIDE_THRESHOLD = 0.5`.
+- `consensus.prediction`: 다수결 (4개 중 다수가 bonafide면 bonafide)
 - `consensus.agreement`: 동의 비율 (`1.0` = 4/4 일치, `0.5` = 2/2)
 
 ### 4.2 기존 단일 응답 호환

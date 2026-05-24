@@ -49,9 +49,6 @@ def test_predict_returns_4_models(predict, wav_name):
 
     for key in MODEL_KEYS:
         r = result[key]
-        assert {"real_prob", "fake_prob", "inference_ms"} <= r.keys()
-        assert 0.0 <= r["real_prob"] <= 1.0
-        assert 0.0 <= r["fake_prob"] <= 1.0
-        assert abs(r["real_prob"] + r["fake_prob"] - 1.0) < 1e-4, \
-            f"{key}: 확률 합이 1이 아님 ({r['real_prob']} + {r['fake_prob']})"
+        assert {"bonafide_prob", "inference_ms"} <= r.keys()
+        assert 0.0 <= r["bonafide_prob"] <= 1.0
         assert r["inference_ms"] > 0
