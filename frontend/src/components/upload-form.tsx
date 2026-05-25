@@ -343,8 +343,8 @@ export function UploadForm() {
         throw new Error(text || `요청 실패 (${res.status})`);
       }
       const data: PredictionResult = await res.json();
-      // 글리치 → RESULT (LCNN(주 모델)이 spoof면 글리치, 아니면 부드럽게)
-      if (data.models.lcnn.prediction === 'spoof') {
+      // 글리치 → RESULT (CRNN(주 모델)이 spoof면 글리치, 아니면 부드럽게)
+      if (data.models.crnn.prediction === 'spoof') {
         setGlitch(true);
         setTimeout(() => {
           setGlitch(false);
@@ -370,10 +370,10 @@ export function UploadForm() {
     if (inputRef.current) inputRef.current.value = '';
   };
 
-  // 주 모델 = LCNN. 메인 라벨/숫자/색상/글리치 모두 LCNN 기준.
-  const primary = result?.models.lcnn;
+  // 주 모델 = CRNN. 메인 라벨/숫자/색상/글리치 모두 CRNN 기준.
+  const primary = result?.models.crnn;
   const isFake = primary?.prediction === 'spoof';
-  const secondaryKeys: ModelKey[] = ['gru', 'crnn', 'xlsr_aasist'];
+  const secondaryKeys: ModelKey[] = ['gru', 'lcnn', 'xlsr_aasist'];
 
   /* 색·테마 ─ FAKE = 빨강, AUTHENTIC = 시안 */
   const themeRgb = isFake ? '255,0,0' : '34,211,238';
@@ -903,7 +903,7 @@ export function UploadForm() {
           </div>
         )}
 
-        {/* ════ RESULT (LCNN 메인 + 보조 3개 모델 라인) ════ */}
+        {/* ════ RESULT (CRNN 메인 + 보조 3개 모델 라인) ════ */}
         {stage === 'RESULT' && result && primary && (
           <div
             className="anim-fi"
@@ -916,7 +916,7 @@ export function UploadForm() {
               fontVariantNumeric: 'tabular-nums',
             }}
           >
-            {/* 상단: LCNN 단독 배지 + 큰 라벨 + 큰 authentic % + 진행 바 */}
+            {/* 상단: CRNN 단독 배지 + 큰 라벨 + 큰 authentic % + 진행 바 */}
             <div
               style={{
                 padding: '22px 26px 18px',
@@ -942,7 +942,7 @@ export function UploadForm() {
                     : '0 0 16px rgba(34,211,238,.3)',
                 }}
               >
-                LCNN · {isFake ? 'FAKE' : 'AUTHENTIC'}
+                CRNN · {isFake ? 'FAKE' : 'AUTHENTIC'}
               </span>
               <div
                 className="anim-ci"
