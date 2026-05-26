@@ -69,14 +69,14 @@ class LCNNClassifier(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
             MaxFeatureMap2D(),
-            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.AdaptiveAvgPool2d((4, 4)),
         )
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(64, 64),
+            nn.Linear(64 * 4 * 4, 256),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(64, num_classes),
+            nn.Linear(256, num_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
